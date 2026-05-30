@@ -10,13 +10,21 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- TABLES
 -- ============================================================
 
+-- Admins (custom auth)
+CREATE TABLE admins (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT UNIQUE NOT NULL,
+  password    TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Sessions (one per day/tournament)
 CREATE TABLE sessions (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code        VARCHAR(6) UNIQUE NOT NULL,
   name        TEXT,
   status      TEXT NOT NULL DEFAULT 'lobby' CHECK (status IN ('lobby','active','finished')),
-  admin_id    UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  admin_id    UUID REFERENCES admins(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -35,6 +43,7 @@ CREATE TABLE players (
   team_id     UUID REFERENCES teams(id) ON DELETE SET NULL,
   name        TEXT NOT NULL,
   is_scorer   BOOLEAN NOT NULL DEFAULT false,
+  is_joker    BOOLEAN NOT NULL DEFAULT false,
   joined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (session_id, name)
 );
@@ -115,7 +124,7 @@ CREATE TABLE partnerships (
 CREATE TABLE ball_overrides (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ball_id     UUID NOT NULL REFERENCES balls(id),
-  admin_id    UUID REFERENCES auth.users(id),
+  admin_id    UUID REFERENCES admins(id),
   reason      TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -167,74 +176,21 @@ SELECT
 FROM team_stats ts;
 
 -- ============================================================
--- ROW LEVEL SECURITY
+-- ROW LEVEL SECURITY (Disabled for custom auth, managed in API)
 -- ============================================================
 
-ALTER TABLE sessions      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE teams         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE players       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE matches        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE innings        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE balls          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE partnerships   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE ball_overrides ENABLE ROW LEVEL SECURITY;
-
--- Helper: is current user the admin of a session?
-CREATE OR REPLACE FUNCTION is_session_admin(session_uuid UUID)
-RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM sessions WHERE id = session_uuid AND admin_id = auth.uid()
-  );
-$$;
-
--- SESSIONS
-CREATE POLICY "sessions_read_all"   ON sessions FOR SELECT USING (true);
-CREATE POLICY "sessions_admin_write" ON sessions FOR ALL USING (admin_id = auth.uid());
-CREATE POLICY "sessions_insert"     ON sessions FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
-
--- TEAMS
-CREATE POLICY "teams_read_all"      ON teams FOR SELECT USING (true);
-CREATE POLICY "teams_admin_write"   ON teams FOR ALL USING (is_session_admin(session_id));
-
--- PLAYERS
-CREATE POLICY "players_read_all"    ON players FOR SELECT USING (true);
-CREATE POLICY "players_insert_own"  ON players FOR INSERT WITH CHECK (true); -- anyone can join
-CREATE POLICY "players_admin_update" ON players FOR UPDATE USING (is_session_admin(session_id));
-
--- MATCHES
-CREATE POLICY "matches_read_all"    ON matches FOR SELECT USING (true);
-CREATE POLICY "matches_admin_write" ON matches FOR ALL USING (is_session_admin(session_id));
-
--- INNINGS
-CREATE POLICY "innings_read_all"    ON innings FOR SELECT USING (true);
-CREATE POLICY "innings_admin_write" ON innings FOR ALL
-  USING (is_session_admin((SELECT session_id FROM matches WHERE id = match_id)));
-
--- BALLS — scorers can insert their team's balls
-CREATE POLICY "balls_read_all"      ON balls FOR SELECT USING (true);
-CREATE POLICY "balls_scorer_insert" ON balls FOR INSERT WITH CHECK (
-  EXISTS (
-    SELECT 1 FROM players p
-    JOIN innings i ON i.id = balls.innings_id
-    WHERE p.team_id = i.team_id
-      AND p.is_scorer = true
-      AND p.name = current_setting('app.scorer_name', true)
-  )
-);
-CREATE POLICY "balls_admin_update"  ON balls FOR UPDATE
-  USING (is_session_admin(
-    (SELECT m.session_id FROM matches m JOIN innings i ON i.match_id = m.id WHERE i.id = balls.innings_id)
-  ));
-
--- PARTNERSHIPS
-CREATE POLICY "partnerships_read_all"  ON partnerships FOR SELECT USING (true);
-CREATE POLICY "partnerships_write_all" ON partnerships FOR ALL USING (true); -- managed server-side
-
--- BALL OVERRIDES
-CREATE POLICY "overrides_admin_only"  ON ball_overrides FOR ALL USING (admin_id = auth.uid());
+ALTER TABLE admins        DISABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE teams         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE players       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE matches       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE innings       DISABLE ROW LEVEL SECURITY;
+ALTER TABLE balls         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE partnerships  DISABLE ROW LEVEL SECURITY;
+ALTER TABLE ball_overrides DISABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- REALTIME — enable for key tables
 -- ============================================================
 -- Run these in Supabase Dashboard > Database > Replication
--- or via: ALTER PUBLICATION supabase_realtime ADD TABLE balls, innings, matches, players;
+-- or via: ALTER PUBLICATION supabase_realtime ADD TABLE balls, innings, matches, players, sessions;

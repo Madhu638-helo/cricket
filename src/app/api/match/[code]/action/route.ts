@@ -21,10 +21,6 @@ export async function POST(
     // Admin: set toss result + batting first
     case 'set_toss': {
       const { tossWinnerId, decision, matchId } = data;
-      const batsFirst = decision === 'bat' ? tossWinnerId
-        : (await supabase.from('matches').select('team1_id,team2_id').eq('id', matchId).single())
-            .data?.[tossWinnerId === (await supabase.from('matches').select('team1_id').eq('id', matchId).single()).data?.team1_id ? 'team2_id' : 'team1_id'];
-
       const { data: match } = await supabase.from('matches').select('team1_id,team2_id').eq('id', matchId).single();
       const battingFirst = decision === 'bat' ? tossWinnerId
         : (match?.team1_id === tossWinnerId ? match?.team2_id : match?.team1_id);
@@ -57,6 +53,35 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
 
+    // Admin: start match directly in innings_1 without toss
+    case 'admin_start_match': {
+      const { overs, team1Id, team2Id, matchNumber, battingTeamId } = data;
+      
+      // Create the match
+      const { data: newMatch } = await supabase.from('matches').insert({
+        session_id: session.id,
+        match_number: matchNumber,
+        overs,
+        team1_id: team1Id,
+        team2_id: team2Id,
+        status: 'innings_1',
+        batting_first: battingTeamId,
+      }).select().single();
+
+      if (newMatch) {
+        // Create first innings
+        await supabase.from('innings').insert({
+          match_id: newMatch.id,
+          team_id: battingTeamId,
+          innings_number: 1,
+          status: 'active',
+        });
+      }
+
+      await supabase.from('sessions').update({ status: 'active' }).eq('id', session.id);
+      return NextResponse.json({ success: true, match: newMatch });
+    }
+
     // Innings end → set target or match result
     case 'innings_end': {
       const { inningsId, matchId } = data;
@@ -85,16 +110,22 @@ export async function POST(
         const battingTeamId = innings2?.team_id;
         const bowlingTeamId = match.team1_id === battingTeamId ? match.team2_id : match.team1_id;
 
+        // Prefetch team names in parallel — avoid inline awaits
+        const [{ data: battingTeamData }, { data: bowlingTeamData }] = await Promise.all([
+          supabase.from('teams').select('name').eq('id', battingTeamId).single(),
+          supabase.from('teams').select('name').eq('id', bowlingTeamId).single(),
+        ]);
+
         let result: string;
         let winnerId: string | null;
 
         if (team2Runs > team1Runs) {
           const wicketsLeft = 10 - (innings2?.total_wickets ?? 0);
-          result = `${(await supabase.from('teams').select('name').eq('id', battingTeamId).single()).data?.name} won by ${wicketsLeft} wickets`;
+          result = `${battingTeamData?.name ?? 'Batting team'} won by ${wicketsLeft} wickets`;
           winnerId = battingTeamId!;
         } else if (team1Runs > team2Runs) {
           const runMargin = team1Runs - team2Runs;
-          result = `${(await supabase.from('teams').select('name').eq('id', bowlingTeamId).single()).data?.name} won by ${runMargin} runs`;
+          result = `${bowlingTeamData?.name ?? 'Bowling team'} won by ${runMargin} runs`;
           winnerId = bowlingTeamId!;
         } else {
           result = 'Match tied';
@@ -102,6 +133,153 @@ export async function POST(
         }
 
         await supabase.from('matches').update({ status: 'result', result, winner_id: winnerId }).eq('id', matchId);
+
+        // Update career stats — batch fetch existing stats before loop
+        const { data: matchBalls } = await supabase.from('balls').select('*')
+          .in('innings_id', [innings1?.id, innings2?.id].filter(Boolean));
+        const { data: matchPlayers } = await supabase.from('players')
+          .select('id,user_id,name').eq('session_id', session.id).not('user_id', 'is', null);
+
+        if (matchBalls && matchPlayers) {
+          const userIds = matchPlayers.map((p: any) => p.user_id);
+
+          // Batch fetch all existing career stats in 3 queries total (not per-player)
+          const [{ data: allBatting }, { data: allBowling }, { data: allFielding }] = await Promise.all([
+            supabase.from('batting_career_stats').select('*').in('user_id', userIds),
+            supabase.from('bowling_career_stats').select('*').in('user_id', userIds),
+            supabase.from('fielding_career_stats').select('*').in('user_id', userIds),
+          ]);
+
+          const battingMap = new Map((allBatting ?? []).map((r: any) => [r.user_id, r]));
+          const bowlingMap = new Map((allBowling ?? []).map((r: any) => [r.user_id, r]));
+          const fieldingMap = new Map((allFielding ?? []).map((r: any) => [r.user_id, r]));
+
+          for (const p of matchPlayers) {
+            if (!p.user_id) continue;
+            const pBalls = matchBalls.filter((b: any) => b.batsman_id === p.id);
+            const bowledBalls = matchBalls.filter((b: any) => b.bowler_id === p.id);
+            const fielderWickets = matchBalls.filter((b: any) => b.is_wicket && b.fielder_id === p.id);
+
+            const runs = pBalls.reduce((s: number, b: any) => s + (b.runs_off_bat || 0), 0);
+            const ballsFaced = pBalls.filter((b: any) => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+            const fours = pBalls.filter((b: any) => b.runs_off_bat === 4).length;
+            const sixes = pBalls.filter((b: any) => b.runs_off_bat === 6).length;
+            const isOut = matchBalls.some((b: any) => b.is_wicket && b.batsman_id === p.id);
+
+            const legalBowled = bowledBalls.filter((b: any) => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+            const runsGiven = bowledBalls.reduce((s: number, b: any) => s + (b.runs_off_bat || 0) + (b.extras || 0), 0);
+            const wicketsTaken = bowledBalls.filter((b: any) => b.is_wicket && b.wicket_type !== 'runout').length;
+
+            // Maiden detection per bowler
+            const overGroups = new Map<number, any[]>();
+            bowledBalls.forEach((b: any) => {
+              const arr = overGroups.get(b.over_number) ?? [];
+              arr.push(b);
+              overGroups.set(b.over_number, arr);
+            });
+            let maidensThisMatch = 0;
+            overGroups.forEach(overBalls => {
+              const legalInOver = overBalls.filter((b: any) => b.extra_type !== 'wide' && b.extra_type !== 'noball');
+              if (legalInOver.length === 6) {
+                const r = overBalls.reduce((s: number, b: any) => s + b.runs_off_bat + b.extras, 0);
+                if (r === 0) maidensThisMatch++;
+              }
+            });
+
+            if (runs > 0 || ballsFaced > 0) {
+              const existing = battingMap.get(p.user_id);
+              if (existing) {
+                const newRuns = existing.runs + runs;
+                const newBalls = existing.balls_faced + ballsFaced;
+                const newInnings = existing.innings + 1;
+                const newNotOuts = existing.not_outs + (isOut ? 0 : 1);
+                const outs = newInnings - newNotOuts;
+                await supabase.from('batting_career_stats').update({
+                  runs: newRuns, balls_faced: newBalls, innings: newInnings,
+                  fours: existing.fours + fours, sixes: existing.sixes + sixes,
+                  fifties: existing.fifties + (runs >= 50 && runs < 100 ? 1 : 0),
+                  hundreds: existing.hundreds + (runs >= 100 ? 1 : 0),
+                  highest_score: Math.max(existing.highest_score, runs),
+                  not_outs: newNotOuts,
+                  matches: existing.matches + 1,
+                  average: outs > 0 ? Math.round((newRuns / outs) * 100) / 100 : newRuns,
+                  strike_rate: newBalls > 0 ? Math.round((newRuns / newBalls) * 10000) / 100 : 0,
+                  updated_at: new Date().toISOString(),
+                }).eq('user_id', p.user_id);
+              } else {
+                await supabase.from('batting_career_stats').insert({
+                  user_id: p.user_id, matches: 1, innings: 1, runs, balls_faced: ballsFaced,
+                  fours, sixes,
+                  fifties: runs >= 50 && runs < 100 ? 1 : 0,
+                  hundreds: runs >= 100 ? 1 : 0,
+                  highest_score: runs,
+                  not_outs: isOut ? 0 : 1,
+                  average: isOut ? runs : 0,
+                  strike_rate: ballsFaced > 0 ? Math.round((runs / ballsFaced) * 10000) / 100 : 0,
+                });
+              }
+            }
+
+            if (legalBowled > 0) {
+              const existing = bowlingMap.get(p.user_id);
+              // Convert cricket overs format to total balls, add, convert back — avoids decimal math bug
+              const existingBalls = existing
+                ? Math.floor(Number(existing.overs_bowled)) * 6 + Math.round((Number(existing.overs_bowled) % 1) * 10)
+                : 0;
+              const totalBalls = existingBalls + legalBowled;
+              const newOvers = parseFloat(`${Math.floor(totalBalls / 6)}.${totalBalls % 6}`);
+              const newRuns = (existing?.runs_conceded ?? 0) + runsGiven;
+              const newWkts = (existing?.wickets ?? 0) + wicketsTaken;
+              const existingBestWkts = parseInt(existing?.best_figures?.split('/')[0] ?? '0', 10);
+              const isBetterFigure = wicketsTaken > existingBestWkts ||
+                (wicketsTaken === existingBestWkts && runsGiven < parseInt(existing?.best_figures?.split('/')[1] ?? '9999', 10));
+              const bestFig = wicketsTaken > 0 && isBetterFigure ? `${wicketsTaken}/${runsGiven}` : (existing?.best_figures ?? '-');
+
+              if (existing) {
+                await supabase.from('bowling_career_stats').update({
+                  matches: existing.matches + 1,
+                  overs_bowled: newOvers,
+                  runs_conceded: newRuns,
+                  wickets: newWkts,
+                  maidens: existing.maidens + maidensThisMatch,
+                  economy: totalBalls > 0 ? Math.round((newRuns / (totalBalls / 6)) * 100) / 100 : 0,
+                  five_wkt_hauls: existing.five_wkt_hauls + (wicketsTaken >= 5 ? 1 : 0),
+                  best_figures: bestFig,
+                  strike_rate: newWkts > 0 ? Math.round((totalBalls / newWkts) * 10) / 10 : 0,
+                  updated_at: new Date().toISOString(),
+                }).eq('user_id', p.user_id);
+              } else {
+                await supabase.from('bowling_career_stats').insert({
+                  user_id: p.user_id, matches: 1, overs_bowled: newOvers,
+                  runs_conceded: runsGiven, wickets: wicketsTaken,
+                  maidens: maidensThisMatch,
+                  economy: legalBowled > 0 ? Math.round((runsGiven / (legalBowled / 6)) * 100) / 100 : 0,
+                  five_wkt_hauls: wicketsTaken >= 5 ? 1 : 0,
+                  best_figures: wicketsTaken > 0 ? `${wicketsTaken}/${runsGiven}` : '-',
+                  strike_rate: wicketsTaken > 0 ? Math.round((legalBowled / wicketsTaken) * 10) / 10 : 0,
+                });
+              }
+            }
+
+            if (fielderWickets.length > 0) {
+              const catches = fielderWickets.filter((b: any) => b.wicket_type === 'caught').length;
+              const runOuts = fielderWickets.filter((b: any) => b.wicket_type === 'runout').length;
+              const stumpings = fielderWickets.filter((b: any) => b.wicket_type === 'stumped').length;
+              const existing = fieldingMap.get(p.user_id);
+              if (existing) {
+                await supabase.from('fielding_career_stats').update({
+                  catches: existing.catches + catches,
+                  run_outs: existing.run_outs + runOuts,
+                  stumpings: existing.stumpings + stumpings,
+                  updated_at: new Date().toISOString(),
+                }).eq('user_id', p.user_id);
+              } else {
+                await supabase.from('fielding_career_stats').insert({ user_id: p.user_id, catches, run_outs: runOuts, stumpings });
+              }
+            }
+          }
+        }
+
         return NextResponse.json({ success: true, result, matchOver: true });
       }
     }
@@ -152,6 +330,83 @@ export async function POST(
     // End session
     case 'end_session': {
       await supabase.from('sessions').update({ status: 'finished' }).eq('id', session.id);
+      return NextResponse.json({ success: true });
+    }
+
+    // Start innings 1 (from setup screen)
+    case 'start_innings_1': {
+      const { matchId, battingTeamId, opener1Id, opener2Id, bowlerId } = data;
+
+      await supabase.from('matches').update({ status: 'innings_1', batting_first: battingTeamId }).eq('id', matchId);
+
+      const { data: innings1 } = await supabase.from('innings').insert({
+        match_id: matchId,
+        team_id: battingTeamId,
+        innings_number: 1,
+        status: 'active',
+      }).select().single();
+
+      if (innings1 && opener1Id && opener2Id) {
+        await supabase.from('partnerships').insert({
+          innings_id: innings1.id,
+          batsman1_id: opener1Id,
+          batsman2_id: opener2Id,
+          runs: 0, balls: 0,
+        });
+      }
+
+      await supabase.from('sessions').update({ status: 'active' }).eq('id', session.id);
+      return NextResponse.json({ success: true, innings1Id: innings1?.id });
+    }
+
+    // Pause match
+    case 'pause_match': {
+      const { matchId } = data;
+      await supabase.from('matches').update({ is_paused: true }).eq('id', matchId);
+      return NextResponse.json({ success: true });
+    }
+
+    // Resume match
+    case 'resume_match': {
+      const { matchId } = data;
+      await supabase.from('matches').update({ is_paused: false }).eq('id', matchId);
+      return NextResponse.json({ success: true });
+    }
+
+    // Cancel match
+    case 'cancel_match': {
+      const { matchId } = data;
+      await supabase.from('matches').update({ status: 'result', result: 'Match Cancelled' }).eq('id', matchId);
+      return NextResponse.json({ success: true });
+    }
+
+    // Approve/reject player join
+    case 'approve_player': {
+      const { playerId, approved } = data;
+      await supabase.from('players').update({
+        approval_status: approved ? 'approved' : 'rejected',
+      }).eq('id', playerId);
+      return NextResponse.json({ success: true });
+    }
+
+    // Reset all player team assignments for rearranging teams
+    case 'reset_teams': {
+      await supabase.from('players').update({
+        team_id: null, is_captain: false, is_scorer: false, is_joker: false,
+      }).eq('session_id', session.id);
+      await supabase.from('sessions').update({ status: 'lobby' }).eq('id', session.id);
+      return NextResponse.json({ success: true });
+    }
+
+    case 'auto_close': {
+      const { matchId } = data;
+      // Only close if still in an active state (not already result)
+      const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
+      if (m && m.status !== 'result' && m.status !== 'setup') {
+        await supabase.from('matches').update({ status: 'result', result: 'Match ended (time expired)' }).eq('id', matchId);
+        await supabase.from('sessions').update({ status: 'finished' }).eq('id', session.id);
+        await supabase.from('innings').update({ status: 'complete' }).eq('match_id', matchId).neq('status', 'complete');
+      }
       return NextResponse.json({ success: true });
     }
 

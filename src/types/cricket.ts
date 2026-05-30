@@ -14,7 +14,7 @@ export interface Session {
   code: string;
   name: string | null;
   status: SessionStatus;
-  admin_id: string | null;
+  owner_id: string | null;
   created_at: string;
 }
 
@@ -28,9 +28,12 @@ export interface Team {
 export interface Player {
   id: string;
   session_id: string;
+  user_id: string | null;
   team_id: string | null;
   name: string;
   is_scorer: boolean;
+  is_joker: boolean;
+  is_captain: boolean;
   joined_at: string;
 }
 
@@ -48,6 +51,7 @@ export interface Match {
   result: string | null;
   winner_id: string | null;
   created_at: string;
+  is_paused: boolean;
 }
 
 export interface Innings {
@@ -72,7 +76,7 @@ export interface Ball {
   delivery_number: number;
   batsman_id: string;
   bowler_id: string;
-  non_striker_id: string;
+  non_striker_id: string | null;
   runs_off_bat: number;
   extras: number;
   extra_type: ExtraType | null;
@@ -87,7 +91,7 @@ export interface Partnership {
   id: string;
   innings_id: string;
   batsman1_id: string;
-  batsman2_id: string;
+  batsman2_id: string | null;
   runs: number;
   balls: number;
   wicket_number: number | null;
@@ -188,6 +192,13 @@ export interface PostWicketPayload {
 }
 
 export interface PostActionPayload {
-  action: 'over_end' | 'innings_end' | 'new_match' | 'end_session' | 'set_toss' | 'set_teams' | 'lock_teams';
+  action: 'over_end' | 'innings_end' | 'new_match' | 'end_session' | 'set_toss' | 'set_teams' | 'lock_teams' | 'start_innings_1' | 'pause_match' | 'resume_match' | 'cancel_match';
   data?: Record<string, unknown>;
 }
+
+/** Extended WicketType covering all 10 dismissal types */
+export type WicketTypeExtended =
+  | 'caught' | 'bowled' | 'lbw' | 'runout' | 'stumped' | 'hitwicket'
+  | 'retiredhurt' | 'retiredout' | 'timedout' | 'obstructingfield';
+
+

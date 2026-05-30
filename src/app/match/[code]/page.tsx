@@ -1,84 +1,116 @@
 'use client';
 import React, { useState, useEffect, use } from 'react';
+import { useRouter } from 'next/navigation';
 import { useRealtimeMatch } from '@/lib/hooks/useRealtimeMatch';
 import { useMatchState } from '@/lib/hooks/useMatchState';
 import ScoreHeader from '@/components/scoring/ScoreHeader';
 import ScoringPad from '@/components/scoring/ScoringPad';
-import BatsmanCard from '@/components/scoring/BatsmanCard';
-import BowlerCard from '@/components/scoring/BowlerCard';
+import PlayerStatsCard from '@/components/scoring/PlayerStatsCard';
 import OverDots from '@/components/scoring/OverDots';
 import WormGraph from '@/components/scoring/WormGraph';
-import BottomTabBar from '@/components/nav/BottomTabBar';
+import { MatchTabBar } from '@/components/nav/BottomTabBar';
 import WicketSheet from '@/components/sheets/WicketSheet';
 import PlayerSelectSheet from '@/components/sheets/PlayerSelectSheet';
-import TossSheet from '@/components/sheets/TossSheet';
 import InningsBreakSheet from '@/components/sheets/InningsBreakSheet';
 import BattingTable from '@/components/scorecard/BattingTable';
 import BowlingTable from '@/components/scorecard/BowlingTable';
 import SessionStandings from '@/components/scorecard/SessionStandings';
+import FallOfWickets from '@/components/scoring/FallOfWickets';
+import SpectatorView from '@/components/scoring/SpectatorView';
 import type { WicketType, ExtraType, Team } from '@/types/cricket';
-import { buildOverHistory, calcBowlerStats, calcBatsmanStats } from '@/lib/cricket/engine';
+import { buildOverHistory, calcBowlerStats, calcBatsmanStats, ballToSummary } from '@/lib/cricket/engine';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface PageProps { params: Promise<{ code: string }> }
 
 export default function MatchPage({ params }: PageProps) {
   const { code } = use(params);
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('score');
   const [playerName, setPlayerName] = useState('');
-  const [isScorer, setIsScorer] = useState(false);
+  const [isScorer, setIsScorer] = useState<boolean | null>(null); // null = loading
+  const [isOwner, setIsOwner] = useState(false);
 
   // Sheet states
   const [showWicket, setShowWicket] = useState(false);
   const [showBowler, setShowBowler] = useState(false);
   const [showBatsman, setShowBatsman] = useState(false);
-  const [showToss, setShowToss] = useState(false);
+  const [showNonStriker, setShowNonStriker] = useState(false);
   const [showInningsBreak, setShowInningsBreak] = useState(false);
 
   // Current on-field state (persisted in memory, updated after each ball)
   const [strikerId, setStrikerId] = useState<string>('');
   const [nonStrikerId, setNonStrikerId] = useState<string>('');
   const [bowlerId, setBowlerId] = useState<string>('');
+  const [pendingBalls, setPendingBalls] = useState<any[]>([]);
+  const [submittedTotal, setSubmittedTotal] = useState<{ runs: number; balls: number; wickets: number } | null>(null);
+  const [innings1Target, setInnings1Target] = useState<number>(0);
 
-  const { match, innings, balls, players, loading, error } = useRealtimeMatch(code);
+  const { session, match, innings, balls, players, loading, error } = useRealtimeMatch(code);
+
+  // Auto-close: if match started but still 'active' >30min past expected end, call close action
+  useEffect(() => {
+    if (!match || match.status === 'result' || match.status === 'setup') return;
+    // Estimate: overs * 4min per over * 2 innings (or 1 if innings1 active)
+    const inningsCount = innings.filter(i => i.status === 'complete').length + 1;
+    const estimatedMinutes = match.overs * 4 * Math.min(inningsCount, 2);
+    const matchStartMs = new Date(match.created_at).getTime();
+    const expectedEndMs = matchStartMs + estimatedMinutes * 60 * 1000;
+    const graceMs = 30 * 60 * 1000;
+    if (Date.now() > expectedEndMs + graceMs) {
+      fetch(`/api/match/${code}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'auto_close', data: { matchId: match.id } }),
+      }).catch(() => {});
+    }
+  }, [match?.id, match?.status]);
 
   useEffect(() => {
-    const name = localStorage.getItem('cricket_player_name') ?? '';
-    setPlayerName(name);
-  }, []);
-
-  useEffect(() => {
-    if (!players.length || !playerName) return;
-    const me = players.find(p => p.name === playerName);
-    setIsScorer(me?.is_scorer ?? false);
-  }, [players, playerName]);
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then(({ user }) => {
+        if (!user) return;
+        setPlayerName(user.name);
+        if (session) setIsOwner(user.id === session.owner_id);
+        
+        const me = players.find(p => p.user_id === user.id);
+        const activeInnings = innings.find(i => i.status === 'active');
+        const isBattingTeamScorer = !!(me?.is_scorer && activeInnings && me?.team_id === activeInnings.team_id);
+        setIsScorer(isBattingTeamScorer || (user.id === session?.owner_id));
+        if (players.length === 0 && user.id !== session?.owner_id) {
+          setIsScorer(false);
+        }
+      })
+      .catch(() => {});
+  }, [session, players, innings]);
 
   // Sync field state from last ball
   useEffect(() => {
     if (!balls.length) return;
     const last = balls[balls.length - 1];
     if (!strikerId) setStrikerId(last.batsman_id);
-    if (!nonStrikerId) setNonStrikerId(last.non_striker_id);
+    if (!nonStrikerId) setNonStrikerId(last.non_striker_id ?? 'single');
     if (!bowlerId) setBowlerId(last.bowler_id);
   }, [balls]);
 
   const currentInnings = innings.find(i => i.status === 'active') ?? null;
   const prevInnings = innings.find(i => i.status === 'complete') ?? null;
-  const inningsBalls = currentInnings ? balls.filter(b => b.innings_id === currentInnings.id) : [];
+  const dbBalls = currentInnings ? balls.filter(b => b.innings_id === currentInnings.id) : [];
+  const inningsBalls = [...dbBalls, ...pendingBalls];
   const overHistory = buildOverHistory(inningsBalls);
   const currentOverNum = currentInnings ? Math.floor(currentInnings.total_balls / 6) : 0;
-  const currentOverBalls = inningsBalls.filter(b => b.over_number === currentOverNum).map(b => {
-    const { ballToSummary } = require('@/lib/cricket/engine');
-    return ballToSummary(b);
-  });
+  const currentOverBalls = inningsBalls.filter(b => b.over_number === currentOverNum).map(b => ballToSummary(b));
 
   // Teams
   const team1 = players.filter(p => p.team_id === match?.team1_id);
   const team2 = players.filter(p => p.team_id === match?.team2_id);
-  const battingPlayers = currentInnings ? players.filter(p => p.team_id === currentInnings.team_id) : [];
+  const jokerPlayers = players.filter(p => p.is_joker);
+  const battingPlayers = currentInnings ? [...players.filter(p => p.team_id === currentInnings.team_id && !p.is_joker), ...jokerPlayers] : [];
   const bowlingTeamId = currentInnings
     ? (currentInnings.team_id === match?.team1_id ? match?.team2_id : match?.team1_id)
     : null;
-  const bowlingPlayers = bowlingTeamId ? players.filter(p => p.team_id === bowlingTeamId) : [];
+  const bowlingPlayers = bowlingTeamId ? [...players.filter(p => p.team_id === bowlingTeamId && !p.is_joker), ...jokerPlayers] : [];
   const fieldingTeamPlayers = bowlingPlayers;
 
   const striker = players.find(p => p.id === strikerId);
@@ -89,36 +121,130 @@ export default function MatchPage({ params }: PageProps) {
   const nonStrikerStats = nonStriker ? calcBatsmanStats(nonStriker, inningsBalls, false) : null;
   const bowlerStats = bowler ? calcBowlerStats(bowler, inningsBalls) : null;
 
-  const crr = currentInnings && currentInnings.total_balls > 0
-    ? Math.round((currentInnings.total_runs / (currentInnings.total_balls / 6)) * 100) / 100
+  // Optimistic live innings — merge DB state with pending balls for instant header update
+  const pendingRuns = pendingBalls.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
+  const pendingWickets = pendingBalls.filter(b => b.is_wicket).length;
+  const pendingLegal = pendingBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+  const liveInnings = currentInnings ? {
+    ...currentInnings,
+    // Use max of (DB + pending) vs submittedTotal to prevent revert during API round-trip
+    total_runs: Math.max(currentInnings.total_runs + pendingRuns, submittedTotal?.runs ?? 0),
+    total_wickets: Math.max(currentInnings.total_wickets + pendingWickets, submittedTotal?.wickets ?? 0),
+    total_balls: Math.max(currentInnings.total_balls + pendingLegal, submittedTotal?.balls ?? 0),
+  } : null;
+
+  // Clear submittedTotal once DB confirms (realtime innings UPDATE catches up)
+  useEffect(() => {
+    if (!submittedTotal || !currentInnings) return;
+    if (currentInnings.total_balls >= submittedTotal.balls) setSubmittedTotal(null);
+  }, [currentInnings?.total_balls]);
+
+  const crr = liveInnings && liveInnings.total_balls > 0
+    ? Math.round((liveInnings.total_runs / (liveInnings.total_balls / 6)) * 100) / 100
     : 0;
-  const rrr = currentInnings?.target && currentInnings.total_balls < (match?.overs ?? 0) * 6
-    ? Math.round(((currentInnings.target - currentInnings.total_runs) / (((match?.overs ?? 0) * 6 - currentInnings.total_balls) / 6)) * 100) / 100
+  const rrr = liveInnings?.target && liveInnings.total_balls < (match?.overs ?? 0) * 6
+    ? Math.round(((liveInnings.target - liveInnings.total_runs) / (((match?.overs ?? 0) * 6 - liveInnings.total_balls) / 6)) * 100) / 100
     : null;
   const isFreehitNext = inningsBalls[inningsBalls.length - 1]?.extra_type === 'noball';
 
-  const postBall = async (payload: Record<string, unknown>) => {
-    const res = await fetch(`/api/match/${code}/ball`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, scorerName: playerName, strikerId, nonStrikerId, bowlerId }),
-    });
-    const result = await res.json();
-    if (result.success) {
-      if (result.newStrikerId) setStrikerId(result.newStrikerId);
-      if (result.newNonStrikerId) setNonStrikerId(result.newNonStrikerId);
-      if (result.overComplete && !result.inningsOver) setShowBowler(true);
-      if (result.inningsOver) {
-        await fetch(`/api/match/${code}/action`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'innings_end', data: { inningsId: currentInnings?.id, matchId: match?.id } }),
+  const submitOver = async (overBalls: any[]) => {
+    if (overBalls.length === 0) return;
+    try {
+      const res = await fetch(`/api/match/${code}/over`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ balls: overBalls })
+      });
+      const result = await res.json();
+      if (result.success) {
+        // Lock in committed totals so score never reverts while waiting for realtime confirm
+        setSubmittedTotal({
+          runs: currentInnings ? currentInnings.total_runs + pendingRuns : 0,
+          balls: currentInnings ? currentInnings.total_balls + pendingLegal : 0,
+          wickets: currentInnings ? currentInnings.total_wickets + pendingWickets : 0,
         });
-        setShowInningsBreak(true);
+        setPendingBalls([]);
+        if (result.inningsOver) {
+          const actionRes = await fetch(`/api/match/${code}/action`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'innings_end', data: { inningsId: currentInnings?.id, matchId: match?.id } }),
+          });
+          const actionData = await actionRes.json();
+          if (actionData.target) setInnings1Target(actionData.target);
+          setShowInningsBreak(true);
+        } else {
+          setShowBowler(true);
+        }
+      } else {
+        alert(result.error);
+        setSubmittedTotal(null);
+        setPendingBalls([]); // Revert on error
       }
+    } catch (e) {
+      alert('Failed to submit over');
+      setSubmittedTotal(null);
+      setPendingBalls([]);
+    }
+  };
+
+  const processLocalBall = (payload: any) => {
+    const isExtra = payload.extra_type === 'wide' || payload.extra_type === 'noball';
+
+    // Use all known balls (committed + pending) for over tracking
+    const allLegal = inningsBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+    const currentOversFinished = Math.floor(allLegal / 6);
+
+    const newBall = {
+      ...payload,
+      innings_id: currentInnings?.id,
+      over_number: currentOversFinished,
+      ball_number: isExtra ? allLegal % 6 : (allLegal % 6) + 1,
+      delivery_number: inningsBalls.length + 1,
+      batsman_id: strikerId,
+      bowler_id: bowlerId,
+      non_striker_id: nonStrikerId,
+      is_free_hit: isFreehitNext,
+      is_wicket: payload.is_wicket ?? false
+    };
+    
+    const newPending = [...pendingBalls, newBall];
+    setPendingBalls(newPending);
+
+    // Strike rotation locally for UX
+    const shouldRotate = !isExtra && payload.runs_off_bat % 2 === 1;
+    let nextStriker = strikerId;
+    let nextNonStriker = nonStrikerId;
+
+    if (shouldRotate && nonStrikerId !== 'single') {
+       nextStriker = nonStrikerId;
+       nextNonStriker = strikerId;
+    }
+    
+    const legalInOver = newPending.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+    const overComplete = legalInOver >= 6;
+    const wickets = inningsBalls.filter(b => b.is_wicket).length + (payload.is_wicket ? 1 : 0);
+    const allOut = wickets >= 10;
+    
+    if (overComplete || allOut) {
+       // auto rotate at over end
+       if (overComplete && nextNonStriker !== 'single' && !allOut) {
+          const temp = nextStriker;
+          nextStriker = nextNonStriker;
+          nextNonStriker = temp;
+       }
+       submitOver(newPending);
+    }
+    
+    setStrikerId(nextStriker);
+    setNonStrikerId(nextNonStriker);
+    
+    if (payload.is_wicket && !allOut) {
+      setShowBatsman(true);
     }
   };
 
   const handleScore = (runs: number, extraType?: ExtraType, extraRuns?: number) => {
-    postBall({ runsOffBat: runs, extraType, extraRuns: extraRuns ?? 0 });
+    processLocalBall({ runs_off_bat: runs, extra_type: extraType ?? null, extras: extraRuns ?? 0 });
   };
 
   const handleWicket = (_runsOffBat?: number) => {
@@ -126,91 +252,268 @@ export default function MatchPage({ params }: PageProps) {
   };
 
   const handleWicketConfirm = async (wicketType: WicketType, fielderId?: string) => {
-    const res = await fetch(`/api/match/${code}/wicket`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wicketType, fielderId, scorerName: playerName, strikerId, nonStrikerId, bowlerId }),
-    });
-    const result = await res.json();
-    if (result.success) {
-      if (!result.allOut) {
-        setShowBatsman(true);
-        if (result.overComplete) setShowBowler(true);
-      } else {
-        setShowInningsBreak(true);
-      }
-    }
+    processLocalBall({ runs_off_bat: 0, extra_type: null, extras: 0, is_wicket: true, wicket_type: wicketType, fielder_id: fielderId });
   };
 
   if (loading) return (
-    <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="text-center">
-        <div style={{ fontSize: '3rem', marginBottom: 'var(--sp-4)' }}>🏏</div>
-        <p style={{ color: 'var(--text-3)' }}>Loading match…</p>
+    <div className="screen" style={{ background: 'var(--bg)' }}>
+      {/* Skeleton header */}
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--s2)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ height: '13px', width: '60%', background: 'var(--s2)', borderRadius: '4px', marginBottom: '6px' }} />
+            <div style={{ height: '10px', width: '40%', background: 'var(--s2)', borderRadius: '4px' }} />
+          </div>
+          <div style={{ width: '48px', height: '28px', background: 'var(--s2)', borderRadius: '8px' }} />
+        </div>
+        {/* Skeleton scoreboard */}
+        <div style={{ marginTop: '12px', display: 'flex', gap: '12px' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ height: '10px', width: '40px', background: 'var(--s2)', borderRadius: '3px', marginBottom: '6px' }} />
+            <div style={{ height: '46px', width: '120px', background: 'var(--s2)', borderRadius: '6px' }} />
+          </div>
+          <div style={{ width: '1px', background: 'var(--border)' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ height: '10px', width: '50px', background: 'var(--s2)', borderRadius: '3px', marginBottom: '6px' }} />
+            <div style={{ height: '24px', width: '80px', background: 'var(--s2)', borderRadius: '6px' }} />
+          </div>
+        </div>
+        <div style={{ height: '2px', background: 'var(--s2)', borderRadius: '2px', marginTop: '12px' }} />
       </div>
-    </main>
+      {/* Skeleton cards */}
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {[80, 120, 200].map(h => (
+          <div key={h} style={{ height: `${h}px`, background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px' }} />
+        ))}
+      </div>
+    </div>
   );
 
-  if (error || !match) return (
-    <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="text-center">
-        <p style={{ color: 'var(--red)' }}>{error ?? 'Match not found'}</p>
-        <a href="/join" className="btn btn-secondary" style={{ marginTop: 'var(--sp-4)' }}>← Back</a>
+  if (error || !match) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('cricket_session_code');
+    }
+    return (
+      <div className="screen" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="text-center">
+          <p style={{ color: 'var(--red)' }}>{error ?? 'Match not found'}</p>
+          <a href="/join" className="btn btn-ghost" style={{ marginTop: '20px' }}>← Back</a>
+        </div>
       </div>
-    </main>
-  );
+    );
+  }
 
   const team1Obj = match ? { id: match.team1_id!, name: team1[0]?.name ?? 'Team A', session_id: '', created_at: '' } as Team : null;
   const team2Obj = match ? { id: match.team2_id!, name: team2[0]?.name ?? 'Team B', session_id: '', created_at: '' } as Team : null;
-  const battingTeamObj = currentInnings?.team_id === match?.team1_id ? team1Obj : team2Obj;
-  const bowlingTeamObj = currentInnings?.team_id === match?.team1_id ? team2Obj : team1Obj;
+  // Show header innings = active OR last completed (so header is never blank)
+  const headerInnings = liveInnings ?? prevInnings ?? null;
+  const battingTeamObj = (headerInnings ?? currentInnings)?.team_id === match?.team1_id ? team1Obj : team2Obj;
+  const bowlingTeamObj = (headerInnings ?? currentInnings)?.team_id === match?.team1_id ? team2Obj : team1Obj;
+
+  if (isScorer === null) {
+    return (
+      <div className="screen" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: '36px', height: '36px', border: '3px solid var(--border)', borderTopColor: 'var(--live)', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+      </div>
+    );
+  }
+
+  if (!isScorer) {
+    return (
+      <ErrorBoundary>
+        <SpectatorView
+          match={match}
+          inningsList={innings}
+          balls={balls}
+          players={players}
+          team1Obj={team1Obj}
+          team2Obj={team2Obj}
+          onBack={() => {
+            if (typeof window !== 'undefined') window.history.back();
+          }}
+        />
+      </ErrorBoundary>
+    );
+  }
 
   return (
-    <>
-      <main className="main-content">
-        {/* Fixed score header */}
-        {currentInnings && (
+    <ErrorBoundary>
+      <div className="screen" id="s-scoring">
+        {/* Fixed score header — always shown once we have any innings data */}
+        {headerInnings && (
           <ScoreHeader
-            innings={currentInnings}
+            innings={headerInnings}
             match={match}
             battingTeam={battingTeamObj}
             bowlingTeam={bowlingTeamObj}
             crr={crr}
             rrr={rrr}
-            projectedScore={currentInnings.total_balls > 0 ? Math.round(crr * match.overs) : 0}
+            projectedScore={headerInnings.total_balls > 0 ? Math.round(crr * match.overs) : 0}
             isFreehitNext={isFreehitNext}
+            onOpenScorecard={() => setActiveTab('scorecard')}
+            previousInnings={prevInnings && headerInnings.id !== prevInnings.id ? prevInnings : null}
+            activeTab={activeTab}
+            onBackToScore={() => setActiveTab('score')}
           />
         )}
 
         {/* Match result banner */}
         {match.status === 'result' && match.result && (
-          <div className="card card-glow-green" style={{ margin: 'var(--sp-4)', textAlign: 'center' }}>
-            <div style={{ fontSize: '2rem', marginBottom: 'var(--sp-2)' }}>🏆</div>
-            <p style={{ color: 'var(--green)', fontFamily: 'Outfit', fontWeight: 700, fontSize: '1.125rem' }}>
+          <div style={{ margin: '16px', background: 'linear-gradient(135deg,rgba(34,197,94,.12),rgba(34,197,94,.04))', border: '1px solid rgba(34,197,94,.2)', borderRadius: '16px', padding: '20px', textAlign: 'center' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '8px' }}>🏆</div>
+            <p style={{ color: '#22c55e', fontWeight: 800, fontSize: '18px', marginBottom: '20px' }}>
               {match.result}
             </p>
+            {isOwner && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/match/${code}/action`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'new_match', data: {
+                        overs: match.overs,
+                        team1Id: match.team1_id,
+                        team2Id: match.team2_id,
+                        matchNumber: innings.length > 0 ? Math.ceil(innings.length / 2) + 1 : 2,
+                      }}),
+                    });
+                    if (res.ok) router.push(`/match/${code}/toss`);
+                  }}
+                  style={{ background: '#e31b23', color: '#fff', border: 'none', borderRadius: '12px', padding: '13px', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Play Again — Same Teams
+                </button>
+                <button
+                  onClick={async () => {
+                    // Reset all player team assignments, redirect to lobby to rearrange
+                    await fetch(`/api/match/${code}/action`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'reset_teams', data: {} }),
+                    });
+                    router.push(`/match/${code}/lobby`);
+                  }}
+                  style={{ background: 'rgba(255,255,255,.08)', color: '#d1d5db', border: '1px solid rgba(255,255,255,.1)', borderRadius: '12px', padding: '13px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Rearrange Teams
+                </button>
+                <button
+                  onClick={async () => {
+                    await fetch(`/api/match/${code}/action`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'end_session', data: {} }),
+                    });
+                    router.push('/');
+                  }}
+                  style={{ background: 'transparent', color: '#6b7280', border: 'none', fontSize: '13px', cursor: 'pointer', padding: '6px' }}
+                >
+                  End Session
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        <div style={{ padding: 'var(--sp-3)', paddingBottom: isScorer ? '320px' : '80px' }}>
+        {/* Pause/Resume for owner during active play */}
+        {isOwner && match.status !== 'result' && match.status !== 'setup' && (
+          <div style={{ padding: '0 16px 8px', display: 'flex', gap: '8px' }}>
+            <button
+              onClick={async () => {
+                await fetch(`/api/match/${code}/action`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: match.is_paused ? 'resume_match' : 'pause_match', data: { matchId: match.id } }),
+                });
+              }}
+              style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.1)', color: '#9ca3af', borderRadius: '10px', padding: '7px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              {match.is_paused ? '▶ Resume' : '⏸ Pause'}
+            </button>
+          </div>
+        )}
+
+        <div style={{ padding: '16px', paddingBottom: '80px' }}>
 
           {/* SCORE TAB */}
           {activeTab === 'score' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-              {strikerStats && <BatsmanCard batsman={strikerStats} />}
-              {nonStrikerStats && <BatsmanCard batsman={nonStrikerStats} />}
-              {bowlerStats && <BowlerCard bowler={bowlerStats} />}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-              {/* Current over */}
-              {currentOverBalls.length > 0 && (
-                <div className="card card-compact">
-                  <OverDots balls={currentOverBalls} overNumber={currentOverNum + 1} maxBalls={match.overs > 0 ? 6 : 6} />
+              {/* Status banner when no active innings */}
+              {!currentInnings && match.status !== 'result' && (
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px 20px', textAlign: 'center' }}>
+                  {match.status === 'innings_break' ? (
+                    <>
+                      <div style={{ fontSize: '28px', marginBottom: '8px' }}>☕</div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', marginBottom: '4px' }}>Innings Break</div>
+                      <div style={{ fontSize: '13px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>
+                        {prevInnings ? `Target: ${prevInnings.total_runs + 1} runs` : 'Setting up 2nd innings…'}
+                      </div>
+                      {isOwner && prevInnings && (
+                        <button
+                          onClick={() => setShowInningsBreak(true)}
+                          style={{ marginTop: '16px', background: 'var(--live)', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px 24px', fontSize: '14px', fontWeight: 800, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+                        >
+                          Start 2nd Innings →
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: '28px', marginBottom: '8px' }}>🏏</div>
+                      <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', marginBottom: '4px' }}>Setting up match</div>
+                      <div style={{ fontSize: '13px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>Waiting for innings to start…</div>
+                    </>
+                  )}
                 </div>
+              )}
+
+              {currentInnings && isScorer && (!strikerId || !nonStrikerId || !bowlerId) && (
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: '12px', fontFamily: 'Barlow, sans-serif' }}>Select Players</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {!strikerId && (
+                       <button className="btn btn-ghost btn-full" onClick={() => setShowBatsman(true)}>Select Striker</button>
+                    )}
+                    {strikerId && !nonStrikerId && (
+                       <div style={{ display: 'flex', gap: '8px' }}>
+                         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowNonStriker(true)}>Select Non-Striker</button>
+                         <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setNonStrikerId('single')}>Play Solo</button>
+                       </div>
+                    )}
+                    {!bowlerId && (
+                       <button className="btn btn-ghost btn-full" onClick={() => setShowBowler(true)}>Select Bowler</button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {(strikerStats || bowlerStats) && (
+                <PlayerStatsCard 
+                  striker={strikerStats}
+                  nonStriker={nonStrikerStats}
+                  bowler={bowlerStats}
+                  currentOverBalls={currentOverBalls}
+                  maxBallsPerOver={match.overs > 0 ? 6 : 6}
+                  currentOverNum={currentOverNum + 1}
+                />
+              )}
+
+              {/* Scoring pad (scorer only) */}
+              {isScorer && currentInnings?.status === 'active' && match.status !== 'result' && (
+                <>
+                  <ScoringPad
+                    onScore={handleScore}
+                    onWicket={handleWicket}
+                    onRetiredHurt={() => setShowBatsman(true)}
+                    isFreehitNext={isFreehitNext}
+                    disabled={false}
+                  />
+                  <FallOfWickets balls={inningsBalls} />
+                </>
               )}
 
               {/* Worm */}
               {overHistory.length > 0 && (
-                <div className="card card-compact">
-                  <p className="label" style={{ marginBottom: 'var(--sp-2)' }}>Run Progression</p>
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: '10px', fontFamily: 'Barlow, sans-serif' }}>Run Progression</div>
                   <WormGraph
                     team1Overs={overHistory}
                     totalOvers={match.overs}
@@ -221,11 +524,11 @@ export default function MatchPage({ params }: PageProps) {
 
               {/* Recent overs */}
               {overHistory.slice(-3).reverse().map(ov => (
-                <div key={ov.overNumber} className="card card-compact">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
-                    <span className="label">Over {ov.overNumber}</span>
-                    <span style={{ color: 'var(--text-2)', fontSize: '0.875rem', fontWeight: 600 }}>
-                      {ov.runs} runs {ov.wickets > 0 ? `· ${ov.wickets}W` : ''} {ov.isMaiden ? '· Maiden 🌟' : ''}
+                <div key={ov.overNumber} style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Over {ov.overNumber}</span>
+                    <span style={{ color: ov.wickets > 0 ? '#f87171' : 'var(--muted)', fontSize: '12px', fontWeight: 700, fontFamily: 'Barlow, sans-serif' }}>
+                      {ov.runs} runs {ov.wickets > 0 ? `· ${ov.wickets}W` : ''} {ov.isMaiden ? '· M' : ''}
                     </span>
                   </div>
                   <OverDots balls={ov.balls} overNumber={ov.overNumber} />
@@ -236,39 +539,76 @@ export default function MatchPage({ params }: PageProps) {
 
           {/* STATS TAB */}
           {activeTab === 'stats' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
-              <div className="card">
-                <h3 className="section-title" style={{ marginBottom: 'var(--sp-3)' }}>Batting</h3>
-                <BattingTable players={battingPlayers} balls={inningsBalls} strikerId={strikerId} />
-              </div>
-              <div className="card">
-                <h3 className="section-title" style={{ marginBottom: 'var(--sp-3)' }}>Bowling</h3>
-                <BowlingTable players={bowlingPlayers} balls={inningsBalls} />
-              </div>
-              {prevInnings && (
-                <div className="card">
-                  <h3 className="section-title" style={{ marginBottom: 'var(--sp-3)' }}>1st Innings Batting</h3>
-                  <BattingTable
-                    players={players.filter(p => p.team_id === prevInnings.team_id)}
-                    balls={balls.filter(b => b.innings_id === prevInnings.id)}
-                    strikerId=""
-                  />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {!currentInnings && match.status !== 'result' ? (
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', textAlign: 'center', padding: '32px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+                  Stats appear once match begins
                 </div>
+              ) : (
+                <>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ width: '3px', height: '14px', background: 'var(--green)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <BattingTable players={battingPlayers} balls={inningsBalls} strikerId={strikerId} />
+                    </div>
+                  </div>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ width: '3px', height: '14px', background: 'var(--blue)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <BowlingTable players={bowlingPlayers} balls={inningsBalls} />
+                    </div>
+                  </div>
+                  {prevInnings && (
+                    <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '3px', height: '14px', background: 'var(--muted)', borderRadius: '2px' }} />
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>1st Innings Batting</span>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <BattingTable players={players.filter(p => p.team_id === prevInnings.team_id)} balls={balls.filter(b => b.innings_id === prevInnings.id)} strikerId="" />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
 
           {/* SCORECARD TAB */}
           {activeTab === 'scorecard' && (
-            <div className="card">
-              <h3 className="section-title" style={{ marginBottom: 'var(--sp-3)' }}>Full Scorecard</h3>
-              <div style={{ overflowX: 'auto' }}>
-                <BattingTable players={battingPlayers} balls={inningsBalls} strikerId={strikerId} />
-              </div>
-              <div className="divider" />
-              <div style={{ overflowX: 'auto' }}>
-                <BowlingTable players={bowlingPlayers} balls={inningsBalls} />
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(!currentInnings && match.status !== 'result') ? (
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', textAlign: 'center', padding: '32px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+                  Scorecard appears once match begins
+                </div>
+              ) : (
+                <>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ width: '3px', height: '14px', background: 'var(--green)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <BattingTable players={battingPlayers} balls={inningsBalls} strikerId={strikerId} />
+                    </div>
+                  </div>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ width: '3px', height: '14px', background: 'var(--blue)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <BowlingTable players={bowlingPlayers} balls={inningsBalls} />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -277,21 +617,30 @@ export default function MatchPage({ params }: PageProps) {
             <SessionStandings code={code} />
           )}
         </div>
-      </main>
+      </div>
 
-      {/* Scoring pad (scorer only) */}
-      {isScorer && currentInnings?.status === 'active' && match.status !== 'result' && (
-        <ScoringPad
-          onScore={handleScore}
-          onWicket={handleWicket}
-          onRetiredHurt={() => setShowBatsman(true)}
-          isFreehitNext={isFreehitNext}
-          disabled={false}
-        />
+      {/* Admin controls */}
+      {isOwner && match.status !== 'result' && (
+        <div style={{ padding: '8px 16px', display: 'flex', gap: '8px', background: 'rgba(0,0,0,.95)', borderTop: '1px solid var(--border)' }}>
+          <button
+            className="btn btn-ghost"
+            style={{ flex: 1, padding: '8px', fontSize: '12px' }}
+            onClick={() => fetch(`/api/match/${code}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: match.status === 'innings_1' || match.status === 'innings_2' ? 'pause_match' : 'resume_match', data: { matchId: match.id } }) })}
+          >
+            {(match as any).is_paused ? '▶ Resume' : '⏸ Pause'}
+          </button>
+          <button
+            className="btn btn-danger"
+            style={{ flex: 1, padding: '8px', fontSize: '12px' }}
+            onClick={() => { if (confirm('Cancel this match?')) fetch(`/api/match/${code}/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel_match', data: { matchId: match.id } }) }); }}
+          >
+            Cancel
+          </button>
+        </div>
       )}
 
       {/* Bottom nav */}
-      <BottomTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+      <MatchTabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Sheets */}
       <WicketSheet
@@ -310,6 +659,14 @@ export default function MatchPage({ params }: PageProps) {
         excludeIds={[strikerId, nonStrikerId]}
       />
       <PlayerSelectSheet
+        open={showNonStriker}
+        onClose={() => setShowNonStriker(false)}
+        onSelect={id => setNonStrikerId(id)}
+        players={battingPlayers}
+        title="Select Non-Striker"
+        excludeIds={[strikerId]}
+      />
+      <PlayerSelectSheet
         open={showBowler}
         onClose={() => setShowBowler(false)}
         onSelect={id => setBowlerId(id)}
@@ -317,40 +674,28 @@ export default function MatchPage({ params }: PageProps) {
         title="Select Bowler"
         excludeIds={[]}
       />
-      {team1Obj && team2Obj && (
-        <TossSheet
-          open={showToss}
-          onClose={() => setShowToss(false)}
-          onConfirm={async (winnerId, decision) => {
-            await fetch(`/api/match/${code}/action`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'set_toss', data: { tossWinnerId: winnerId, decision, matchId: match.id } }),
-            });
-          }}
-          team1={team1Obj}
-          team2={team2Obj}
-        />
-      )}
-      {currentInnings?.status === 'complete' && prevInnings && team1Obj && team2Obj && (
+
+      {showInningsBreak && prevInnings && team1Obj && team2Obj && (
         <InningsBreakSheet
           open={showInningsBreak}
-          target={currentInnings.target ?? 0}
+          target={innings1Target || prevInnings.total_runs + 1}
           team1Runs={prevInnings.total_runs}
           team1Name={prevInnings.team_id === team1Obj.id ? team1Obj.name : team2Obj.name}
-          team2Name={currentInnings.team_id === team1Obj.id ? team1Obj.name : team2Obj.name}
+          team2Name={prevInnings.team_id === team1Obj.id ? team2Obj.name : team1Obj.name}
           overs={match.overs}
-          battingPlayers={battingPlayers.map(p => ({ id: p.id, name: p.name }))}
-          bowlingPlayers={bowlingPlayers.map(p => ({ id: p.id, name: p.name }))}
+          battingPlayers={players.filter(p => p.team_id !== prevInnings.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
+          bowlingPlayers={players.filter(p => p.team_id === prevInnings.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
           onStartInnings2={async (opener1, opener2, bowler) => {
+            const inn2TeamId = prevInnings.team_id === match.team1_id ? match.team2_id : match.team1_id;
             await fetch(`/api/match/${code}/action`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 action: 'start_innings_2',
                 data: {
                   matchId: match.id,
-                  battingTeamId: currentInnings.team_id,
+                  battingTeamId: inn2TeamId,
                   opener1Id: opener1, opener2Id: opener2, bowlerId: bowler,
-                  target: currentInnings.target,
+                  target: innings1Target || prevInnings.total_runs + 1,
                 },
               }),
             });
@@ -361,6 +706,6 @@ export default function MatchPage({ params }: PageProps) {
           }}
         />
       )}
-    </>
+    </ErrorBoundary>
   );
 }

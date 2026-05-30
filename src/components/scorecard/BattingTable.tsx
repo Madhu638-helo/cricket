@@ -36,21 +36,21 @@ export default function BattingTable({ players, balls, strikerId }: BattingTable
           <tr key={s.player.id} className={s.player.id === strikerId ? 'highlight' : ''}>
             <td>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontWeight: 600, color: s.isOut ? 'var(--text-2)' : 'var(--text-1)' }}>
+                <span style={{ fontWeight: 600, color: s.isOut ? 'var(--muted)' : 'var(--txt)' }}>
                   {s.player.name}
-                  {s.isOnStrike && !s.isOut && (
-                    <span style={{ color: 'var(--green)', marginLeft: 4 }}>●</span>
+                  {!s.isOut && (
+                    <span style={{ color: 'var(--red)', marginLeft: 4, fontWeight: 700 }}>*</span>
                   )}
                 </span>
                 {s.isOut && s.dismissal && (
-                  <span style={{ fontSize: '0.6875rem', color: 'var(--text-3)' }}>{s.dismissal}</span>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>{s.dismissal}</span>
                 )}
                 {!s.isOut && s.balls > 0 && (
-                  <span style={{ fontSize: '0.6875rem', color: 'var(--green)' }}>batting*</span>
+                  <span style={{ fontSize: '11px', color: 'var(--dim)' }}>batting{s.isOnStrike ? '*' : ''}</span>
                 )}
               </div>
             </td>
-            <td className="runs-cell">{s.runs}</td>
+            <td className="runs-cell" style={{ color: s.isOnStrike ? 'var(--red)' : 'inherit', fontWeight: 800 }}>{s.runs}</td>
             <td>{s.balls}</td>
             <td style={{ color: 'var(--amber)' }}>{s.fours}</td>
             <td style={{ color: 'var(--green)' }}>{s.sixes}</td>

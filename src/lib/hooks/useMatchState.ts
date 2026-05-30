@@ -68,7 +68,7 @@ export function useMatchState({ match, innings, balls, players, teams }: UseMatc
 
     return {
       match,
-      session: { id: '', code: '', name: null, status: 'active', admin_id: null, created_at: '' }, // filled by parent
+      session: { id: '', code: '', name: null, status: 'active', owner_id: null, created_at: '' }, // filled by parent
       teams: { team1: teams.team1!, team2: teams.team2! },
       players,
       currentInnings,

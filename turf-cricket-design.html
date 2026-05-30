@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turf Cricket</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --red: #E31B23; --red-lo: rgba(227,27,35,0.12); --red-glow: rgba(227,27,35,0.3);
+  --bg: #000; --s1: #111; --s2: #1a1a1a; --s3: #222;
+  --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.14);
+  --txt: #f5f5f5; --muted: #888; --dim: #444;
+  --green: #22c55e; --amber: #f59e0b; --blue: #3b82f6; --purple: #8b5cf6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+h1,h2,h3,.heading{font-family:'Space Grotesk',sans-serif}
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+
+/* ── Layout ── */
+#app{max-width:430px;height:100vh;margin:0 auto;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.screen{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:72px}
+.screen::-webkit-scrollbar{display:none}
+
+/* ── Bottom nav ── */
+.bnav{position:absolute;bottom:0;left:0;right:0;height:64px;background:rgba(0,0,0,0.92);border-top:1px solid var(--border);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-around;padding:0 4px 8px;z-index:200}
+.bnav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 14px;border:none;background:none;cursor:pointer;color:var(--muted);font-size:10px;font-weight:600;border-radius:10px;transition:.15s}
+.bnav-btn.act{color:var(--red)}
+.bnav-btn .pip{width:38px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.bnav-btn.act .pip{background:var(--red-lo)}
+.bnav-btn svg{transition:.15s}
+
+/* ── Cards ── */
+.card{background:var(--s1);border:1px solid var(--border);border-radius:16px;transition:.2s}
+.card:hover{border-color:var(--border2)}
+.card-press{cursor:pointer}
+.card-press:active{transform:scale(.98)}
+
+/* ── Buttons ── */
+.btn{border:none;border-radius:12px;font-weight:700;cursor:pointer;transition:.15s;font-family:'Inter',sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:active{transform:scale(.96)}
+.btn-red{background:var(--red);color:#fff;box-shadow:0 4px 16px var(--red-glow)}
+.btn-red:hover{background:#f52530;box-shadow:0 6px 24px rgba(227,27,35,.5)}
+.btn-ghost{background:var(--s2);color:var(--txt);border:1px solid var(--border)}
+.btn-ghost:hover{background:var(--s3);border-color:var(--border2)}
+.btn-danger{background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.2)}
+.btn-full{width:100%}
+
+/* ── Inputs ── */
+.inp{width:100%;padding:14px 16px;background:var(--s2);border:1px solid var(--border);border-radius:12px;color:var(--txt);font-size:15px;font-family:'Inter',sans-serif;outline:none;transition:.2s}
+.inp:focus{border-color:rgba(227,27,35,.4)}
+.inp::placeholder{color:var(--dim)}
+.label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+
+/* ── Tags ── */
+.tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
+.tag-live{background:rgba(227,27,35,.12);color:#fc8181;border:1px solid rgba(227,27,35,.2)}
+.tag-up{background:rgba(59,130,246,.1);color:#93c5fd;border:1px solid rgba(59,130,246,.15)}
+.tag-done{background:rgba(100,100,100,.12);color:var(--muted);border:1px solid rgba(255,255,255,.07)}
+.tag-green{background:rgba(34,197,94,.1);color:#86efac;border:1px solid rgba(34,197,94,.15)}
+
+/* ── Role chips ── */
+.role{display:inline-flex;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
+.role-cap{background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.25)}
+.role-scorer{background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.25)}
+.role-joker{background:rgba(139,92,246,.15);color:#c4b5fd;border:1px solid rgba(139,92,246,.25)}
+.role-none{background:rgba(100,100,100,.1);color:var(--dim);border:1px solid rgba(100,100,100,.15)}
+
+/* ── Page header ── */
+.hdr{padding:52px 20px 12px;background:rgba(0,0,0,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+
+/* ── Ball dots ── */
+.ball{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;border:1.5px solid var(--border);flex-shrink:0}
+.b0{background:var(--s2);color:var(--muted)}
+.b1,.b2,.b3{background:rgba(255,255,255,.08);color:var(--txt)}
+.b4{background:rgba(59,130,246,.18);color:#60a5fa;border-color:rgba(59,130,246,.3)}
+.b6{background:rgba(227,27,35,.18);color:#fca5a5;border-color:rgba(227,27,35,.3)}
+.bW{background:rgba(239,68,68,.2);color:#f87171;border-color:rgba(239,68,68,.3)}
+.bE{background:rgba(245,158,11,.15);color:#fcd34d;border-color:rgba(245,158,11,.25);font-size:10px}
+.bP{border:1.5px dashed var(--dim);background:transparent}
+
+/* ── Live dot ── */
+.ldot{width:7px;height:7px;border-radius:50%;background:var(--red);animation:ld 1.5s infinite;display:inline-block;flex-shrink:0}
+@keyframes ld{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.75)}}
+
+/* ── Toggle ── */
+.toggle{display:flex;gap:4px;background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:4px}
+.toggle-btn{flex:1;padding:8px;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);background:transparent;font-family:'Inter',sans-serif;transition:.15s}
+.toggle-btn.on{background:var(--s1);color:var(--txt);box-shadow:0 1px 6px rgba(0,0,0,.4)}
+
+/* ── Avatar ── */
+.av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;flex-shrink:0;position:relative}
+
+/* ── Progress ── */
+.prog{height:4px;background:var(--s3);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--red),#ff4d55);transition:width .6s}
+
+/* ── Score big ── */
+.score-lg{font-size:62px;font-weight:900;line-height:1;letter-spacing:-2px;font-family:'Space Grotesk',sans-serif}
+
+/* ── Scoring btn ── */
+.sbtn{background:var(--s2);border:1px solid var(--border);border-radius:12px;cursor:pointer;font-weight:800;color:var(--txt);transition:.12s;display:flex;align-items:center;justify-content:center;font-size:18px;font-family:'Space Grotesk',sans-serif}
+.sbtn:active{transform:scale(.9);background:var(--s3)}
+.sbtn.s4{border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.08);color:#93c5fd}
+.sbtn.s6{border-color:rgba(227,27,35,.3);background:rgba(227,27,35,.1);color:#fca5a5}
+.sbtn.sW{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.1);color:#f87171;font-size:14px}
+.sbtn.sX{border-color:rgba(245,158,11,.25);background:rgba(245,158,11,.07);color:#fcd34d;font-size:13px}
+.sbtn.sU{border-color:var(--dim);font-size:13px;color:var(--muted)}
+
+/* ── Modal ── */
+.modal-bg{position:absolute;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(8px);z-index:500;display:flex;align-items:flex-end}
+.modal{background:var(--s1);border:1px solid var(--border2);border-radius:24px 24px 0 0;padding:20px;width:100%;max-height:85vh;overflow-y:auto}
+.modal::-webkit-scrollbar{display:none}
+.modal-handle{width:40px;height:4px;background:var(--dim);border-radius:2px;margin:0 auto 16px}
+.hidden{display:none!important}
+
+/* ── Among-Us lobby player ── */
+.lobby-player{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;border-radius:14px;cursor:pointer;transition:.15s;border:1.5px solid transparent;min-width:0}
+.lobby-player:hover{background:var(--s2)}
+.lobby-player.sel{border-color:var(--red);background:var(--red-lo)}
+.lobby-player .pname{font-size:11px;font-weight:600;text-align:center;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── Divider ── */
+.div{height:1px;background:var(--border);margin:0}
+
+/* ── Spectator score ticker ── */
+.ticker-bar{background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:6px 16px;text-align:center;letter-spacing:.3px}
+
+/* select styled */
+select.inp{appearance:none;cursor:pointer}
+
+/* ── Pill filter ── */
+.pill{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s}
+.pill.on{background:var(--red-lo);border-color:rgba(227,27,35,.3);color:#fc8181}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ════════════════════════════════════════════
+     SCREEN: HOME
+════════════════════════════════════════════ -->
+<div id="s-home" class="screen">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:13px;color:var(--muted)">Good evening</div>
+        <div class="heading" style="font-size:22px">Rahul Sharma</div>
+      </div>
+      <div class="av" style="width:40px;height:40px;background:linear-gradient(135deg,#E31B23,#8B0000);font-size:15px;cursor:pointer" onclick="go('s-profile')">RS
+        <div style="position:absolute;bottom:1px;right:1px;width:10px;height:10px;background:var(--green);border-radius:50%;border:2px solid var(--bg)"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+
+    <!-- Quick actions -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button class="btn btn-red" style="padding:16px;font-size:15px" onclick="go('s-create')">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" d="M12 4v16M4 12h16"/></svg>
+        Create
+      </button>
+      <button class="btn btn-ghost" style="padding:16px;font-size:15px" onclick="go('s-join')">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M17 8l4 4-4 4M3 12h18"/></svg>
+        Join
+      </button>
+    </div>
+
+    <!-- Live matches -->
+    <div>
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Live Now</div>
+
+      <!-- Live card -->
+      <div class="card card-press" style="padding:16px;border-color:rgba(227,27,35,.2);background:linear-gradient(135deg,rgba(227,27,35,.06),var(--s1))" onclick="go('s-spectate')">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span class="ldot"></span>
+            <span style="font-size:12px;font-weight:700;color:var(--red)">LIVE</span>
+            <span style="font-size:12px;color:var(--muted)">Gladiators vs Warriors</span>
+          </div>
+          <span style="font-size:11px;color:var(--muted);background:var(--s3);padding:2px 8px;border-radius:8px">T20</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:1px">Gladiators</div>
+            <div class="heading" style="font-size:30px">164<span style="font-size:16px;font-weight:500;color:var(--muted)">/4</span></div>
+            <div style="font-size:11px;color:var(--muted)">18.2 ov · CRR 8.94</div>
+          </div>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:6px">vs</div>
+          <div style="text-align:right">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:1px">Warriors</div>
+            <div class="heading" style="font-size:30px">142<span style="font-size:16px;font-weight:500;color:var(--muted)">/10</span></div>
+            <div style="font-size:11px;color:var(--muted)">20 ov · All out</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center;background:var(--s2);padding:6px;border-radius:8px">
+          Need <b style="color:#fc8181">0 runs in 1.4 ov</b> · Tap to watch
+        </div>
+      </div>
+    </div>
+
+    <!-- Upcoming -->
+    <div>
+      <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Upcoming</div>
+      <div class="card card-press" style="padding:16px" onclick="go('s-lobby')">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span class="tag tag-up">Upcoming</span>
+          <span style="font-size:12px;color:var(--muted)">Today · 6 PM</span>
+        </div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:4px">Titans vs Rockets</div>
+        <div style="font-size:12px;color:var(--muted);display:flex;gap:10px">
+          <span>Surat Ground</span>
+          <span>T20 · 11 aside</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="display:flex">
+              <div class="av" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#E31B23,#8B0000);border:2px solid var(--s1);z-index:3">R</div>
+              <div class="av" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:2px solid var(--s1);margin-left:-6px;z-index:2">S</div>
+              <div class="av" style="width:24px;height:24px;font-size:9px;background:linear-gradient(135deg,#22c55e,#15803d);border:2px solid var(--s1);margin-left:-6px;z-index:1">A</div>
+            </div>
+            <span style="font-size:11px;color:var(--muted)">9 joined</span>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:var(--muted);background:var(--s3);padding:4px 10px;border-radius:8px;border:1px solid var(--border)">SP-7K2R</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- My stats -->
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">My Stats</div>
+        <button style="font-size:12px;color:var(--red);background:none;border:none;cursor:pointer;font-weight:700" onclick="go('s-profile')">View All</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+        <div class="card" style="padding:12px;text-align:center">
+          <div class="heading" style="font-size:22px">847</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Runs</div>
+        </div>
+        <div class="card" style="padding:12px;text-align:center;border-color:rgba(227,27,35,.2)">
+          <div class="heading" style="font-size:22px;color:var(--red)">38</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Wickets</div>
+        </div>
+        <div class="card" style="padding:12px;text-align:center">
+          <div class="heading" style="font-size:22px">42.3</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Avg</div>
+        </div>
+        <div class="card" style="padding:12px;text-align:center">
+          <div class="heading" style="font-size:22px;color:var(--amber)">5</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">MVPs</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: JOIN MATCH
+════════════════════════════════════════════ -->
+<div id="s-join" class="screen hidden">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost" style="width:36px;height:36px;padding:0;border-radius:10px" onclick="go('s-home')">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="heading" style="font-size:20px">Join Match</div>
+    </div>
+  </div>
+  <div style="padding:32px 20px">
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="font-size:56px;margin-bottom:12px">🏏</div>
+      <div class="heading" style="font-size:22px;margin-bottom:6px">Enter Match Code</div>
+      <div style="font-size:14px;color:var(--muted)">Ask the match creator for the 6-character code</div>
+    </div>
+
+    <div style="margin-bottom:20px">
+      <div class="label">Match Code</div>
+      <input id="join-code-input" class="inp" placeholder="SP-XXXX" style="font-size:22px;font-weight:800;letter-spacing:4px;text-align:center;text-transform:uppercase" maxlength="7"
+        oninput="this.value=this.value.toUpperCase();checkJoinCode()">
+      <div id="join-code-err" style="font-size:12px;color:#f87171;margin-top:6px;text-align:center" class="hidden">Match not found. Check the code and try again.</div>
+    </div>
+
+    <button id="join-btn" class="btn btn-red btn-full" style="padding:16px;font-size:15px;opacity:.4" disabled onclick="joinMatch()">Join Match</button>
+
+    <div style="text-align:center;margin-top:20px">
+      <div style="font-size:13px;color:var(--muted)">— or scan QR code —</div>
+      <button class="btn btn-ghost" style="padding:10px 20px;margin-top:10px;font-size:13px">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3m0 4h3m0-7h-7v3m0 4h4"/></svg>
+        Scan QR
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: CREATE MATCH
+════════════════════════════════════════════ -->
+<div id="s-create" class="screen hidden">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost" style="width:36px;height:36px;padding:0;border-radius:10px" onclick="go('s-home')">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="heading" style="font-size:20px">Create Match</div>
+    </div>
+  </div>
+  <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+
+    <div>
+      <div class="label">Match Name</div>
+      <input class="inp" id="c-name" placeholder="Evening T20 · Surat Ground" type="text">
+    </div>
+
+    <div>
+      <div class="label">Format</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px" id="format-sel">
+        <button class="btn btn-red" style="padding:12px;font-size:13px" data-fmt="5" onclick="selFmt(this,'5')">5 Ov</button>
+        <button class="btn btn-ghost" style="padding:12px;font-size:13px" data-fmt="10" onclick="selFmt(this,'10')">10 Ov</button>
+        <button class="btn btn-ghost" style="padding:12px;font-size:13px" data-fmt="20" onclick="selFmt(this,'20')">T20</button>
+        <button class="btn btn-ghost" style="padding:12px;font-size:13px" data-fmt="custom" onclick="selFmt(this,'custom')">Custom</button>
+      </div>
+    </div>
+
+    <div id="custom-overs-row" class="hidden">
+      <div class="label">Overs</div>
+      <input class="inp" id="c-overs" placeholder="e.g. 15" type="number" min="1" max="50">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <div class="label">Team Size</div>
+        <input class="inp" id="c-size" placeholder="11" type="number" min="2" max="15">
+      </div>
+      <div>
+        <div class="label">Ball Type</div>
+        <select class="inp" id="c-ball">
+          <option>Tennis</option>
+          <option>Leather</option>
+          <option>Rubber</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <div class="label">Date</div>
+        <input class="inp" type="date" id="c-date">
+      </div>
+      <div>
+        <div class="label">Time</div>
+        <input class="inp" type="time" id="c-time">
+      </div>
+    </div>
+
+    <div>
+      <div class="label">Ground</div>
+      <input class="inp" id="c-ground" placeholder="Surat Cricket Ground" type="text">
+    </div>
+
+    <button class="btn btn-red btn-full" style="padding:16px;font-size:15px;margin-top:4px" onclick="createMatch()">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" d="M12 4v16M4 12h16"/></svg>
+      Create & Get Code
+    </button>
+    <div style="text-align:center;font-size:12px;color:var(--dim)">A unique 6-character code will be generated for players to join</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: LOBBY (Among-Us style)
+════════════════════════════════════════════ -->
+<div id="s-lobby" class="screen hidden">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-ghost" style="width:36px;height:36px;padding:0;border-radius:10px" onclick="go('s-home')">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <div>
+          <div class="heading" style="font-size:18px">Titans vs Rockets</div>
+          <div style="font-size:12px;color:var(--muted)">T20 · Surat Ground · 6 PM</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:16px;font-weight:800;letter-spacing:3px">SP-7K2R</div>
+        <div style="font-size:10px;color:var(--muted)">Share code</div>
+      </div>
+    </div>
+    <!-- Player count -->
+    <div class="card" style="padding:10px 14px;background:var(--s2)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:12px;color:var(--muted)"><b id="lobby-count" style="color:var(--txt)">9</b> / 22 players joined</div>
+        <div class="prog" style="width:120px"><div class="prog-fill" id="lobby-prog" style="width:41%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:16px 20px;display:flex;flex-direction:column;gap:16px">
+
+    <!-- Instruction -->
+    <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:12px;padding:10px 14px;font-size:12px;color:#fcd34d">
+      <b>Admin:</b> Tap a player to assign them to a team, set captain, scorer, or joker.
+    </div>
+
+    <!-- Teams side by side -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <!-- Team A -->
+      <div class="card" style="padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <div style="width:10px;height:10px;border-radius:50%;background:var(--red);flex-shrink:0"></div>
+          <div style="font-size:13px;font-weight:700">Titans</div>
+        </div>
+        <div id="team-a" style="display:flex;flex-direction:column;gap:6px">
+          <!-- populated by JS -->
+        </div>
+      </div>
+      <!-- Team B -->
+      <div class="card" style="padding:12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <div style="width:10px;height:10px;border-radius:50%;background:var(--blue);flex-shrink:0"></div>
+          <div style="font-size:13px;font-weight:700">Rockets</div>
+        </div>
+        <div id="team-b" style="display:flex;flex-direction:column;gap:6px">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Unassigned -->
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Waiting / Unassigned</div>
+      <div id="lobby-unassigned" style="display:flex;flex-wrap:wrap;gap:8px">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <!-- Joker section -->
+    <div class="card" style="padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-size:20px">🃏</div>
+        <div>
+          <div style="font-size:13px;font-weight:700">Joker Player</div>
+          <div style="font-size:11px;color:var(--muted)">Can bat & bowl for either team</div>
+        </div>
+      </div>
+      <div id="joker-slot" style="font-size:13px;color:var(--dim);padding:8px;background:var(--s2);border-radius:8px;text-align:center">Not assigned yet</div>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-red btn-full" style="padding:15px;font-size:15px" onclick="go('s-toss')">Proceed to Toss →</button>
+      <button class="btn btn-ghost btn-full" style="padding:12px;font-size:13px">Share Join Link</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: TOSS
+════════════════════════════════════════════ -->
+<div id="s-toss" class="screen hidden">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost" style="width:36px;height:36px;padding:0;border-radius:10px" onclick="go('s-lobby')">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="heading" style="font-size:20px">Toss</div>
+    </div>
+  </div>
+
+  <div style="padding:24px 20px;display:flex;flex-direction:column;gap:20px">
+
+    <div style="text-align:center;padding:24px 0">
+      <div id="coin" style="font-size:72px;cursor:pointer;transition:transform .1s;user-select:none" onclick="flipCoin()">🪙</div>
+      <div id="toss-result" style="font-size:15px;font-weight:700;margin-top:12px;color:var(--muted)">Tap coin to flip</div>
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div class="label" style="margin-bottom:10px">Toss won by</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="toss-a" class="btn btn-ghost" style="padding:14px;font-size:14px" onclick="selTossWinner('Titans',this)">Titans</button>
+        <button id="toss-b" class="btn btn-ghost" style="padding:14px;font-size:14px" onclick="selTossWinner('Rockets',this)">Rockets</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px" id="toss-choice-card">
+      <div class="label" style="margin-bottom:10px">They chose to</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn btn-ghost" style="padding:14px;font-size:14px" onclick="selTossChoice('Bat',this)">🏏 Bat</button>
+        <button class="btn btn-ghost" style="padding:14px;font-size:14px" onclick="selTossChoice('Bowl',this)">⚾ Bowl</button>
+      </div>
+    </div>
+
+    <button class="btn btn-red btn-full" style="padding:15px;font-size:15px" onclick="go('s-setup')">Set Opening Players →</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: MATCH SETUP (openers)
+════════════════════════════════════════════ -->
+<div id="s-setup" class="screen hidden">
+  <div class="hdr">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost" style="width:36px;height:36px;padding:0;border-radius:10px" onclick="go('s-toss')">
+        <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div class="heading" style="font-size:20px">Opening Players</div>
+    </div>
+  </div>
+
+  <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+
+    <div class="card" style="padding:14px;border-color:rgba(227,27,35,.15)">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">⚡ Titans bat first</div>
+      <div>
+        <div class="label">Striker (Opening Batsman)</div>
+        <select class="inp" id="sel-striker">
+          <option>R. Sharma</option><option>V. Kumar</option><option>A. Patel</option><option>S. Singh</option>
+        </select>
+      </div>
+      <div style="margin-top:10px">
+        <div class="label">Non-Striker</div>
+        <select class="inp" id="sel-nonstriker">
+          <option>V. Kumar</option><option>R. Sharma</option><option>A. Patel</option><option>S. Singh</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px">
+      <div>
+        <div class="label">Opening Bowler (Rockets)</div>
+        <select class="inp" id="sel-bowler">
+          <option>S. Khan</option><option>M. Rao</option><option>D. Gupta</option><option>J. Mehta</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn btn-red btn-full" style="padding:15px;font-size:15px" onclick="go('s-scoring')">Start Match →</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: LIVE SCORING (scorer only)
+════════════════════════════════════════════ -->
+<div id="s-scoring" class="screen hidden" style="padding-bottom:80px">
+
+  <!-- Scorer badge -->
+  <div style="background:rgba(59,130,246,.15);border-bottom:1px solid rgba(59,130,246,.2);padding:8px 16px;text-align:center;font-size:11px;font-weight:700;color:#93c5fd;position:sticky;top:0;z-index:100">
+    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    You are the Scorer · Titans vs Rockets
+  </div>
+
+  <!-- Score header -->
+  <div style="background:linear-gradient(180deg,rgba(227,27,35,.1),transparent);padding:16px 20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="ldot"></span>
+        <span style="font-size:11px;font-weight:700;color:var(--red)">LIVE</span>
+        <span style="font-size:11px;color:var(--muted)" id="sc-overs-label">18.2 ov</span>
+      </div>
+      <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px" onclick="go('s-spectate')">Scorecard</button>
+    </div>
+    <div style="text-align:center">
+      <div class="score-lg" id="sc-score">164<span style="font-size:32px;font-weight:500;color:var(--muted)">/4</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px" id="sc-context">CRR <b style="color:var(--txt)">8.94</b> · Target <b style="color:#fc8181">143</b> · Need <b style="color:var(--green)">22 off 10b</b></div>
+    </div>
+    <div class="prog" style="margin-top:12px"><div class="prog-fill" id="sc-prog" style="width:91%"></div></div>
+  </div>
+
+  <div style="padding:0 16px">
+
+    <!-- Batsmen / Bowler card -->
+    <div class="card" style="padding:12px;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center;margin-bottom:10px">
+        <div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+            <span style="font-size:13px;font-weight:700" id="sc-striker">S. Kumar</span>
+            <span style="font-size:10px;background:var(--red-lo);color:#fc8181;padding:1px 5px;border-radius:4px;font-weight:700">*</span>
+          </div>
+          <div class="heading" style="font-size:20px" id="sc-striker-score">64 <span style="font-size:11px;font-weight:400;color:var(--muted)">(38b)</span></div>
+          <div style="font-size:10px;color:var(--muted)" id="sc-striker-sr">SR 168 · 4s:6 · 6s:3</div>
+        </div>
+        <div style="font-size:11px;color:var(--dim)">vs</div>
+        <div style="text-align:right">
+          <div style="font-size:13px;font-weight:600;margin-bottom:2px" id="sc-nonstriker">R. Patel</div>
+          <div class="heading" style="font-size:20px" id="sc-nonstriker-score">28 <span style="font-size:11px;font-weight:400;color:var(--muted)">(19b)</span></div>
+          <div style="font-size:10px;color:var(--muted)" id="sc-nonstriker-sr">SR 147</div>
+        </div>
+      </div>
+      <div class="div"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px">
+        <div style="font-size:12px;color:var(--muted)">
+          <b style="color:var(--txt)" id="sc-bowler">A. Singh</b>
+          <span id="sc-bowler-fig"> 3-0-22-1</span>
+        </div>
+        <div style="display:flex;gap:4px" id="sc-this-over">
+          <div class="ball b0">0</div>
+          <div class="ball b1">1</div>
+          <div class="ball b4">4</div>
+          <div class="ball bW">W</div>
+          <div class="ball b1">2</div>
+          <div class="ball bP"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scoring pad -->
+    <div class="card" style="padding:14px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Score Ball</div>
+      <!-- Runs -->
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px">
+        <button class="sbtn" style="height:50px" onclick="scoreBall(0)">0</button>
+        <button class="sbtn" style="height:50px" onclick="scoreBall(1)">1</button>
+        <button class="sbtn" style="height:50px" onclick="scoreBall(2)">2</button>
+        <button class="sbtn" style="height:50px" onclick="scoreBall(3)">3</button>
+        <button class="sbtn" style="height:50px" onclick="scoreBall(5)">5</button>
+        <button class="sbtn s4" style="height:50px" onclick="scoreBall(4)">4</button>
+        <button class="sbtn s6" style="height:50px" onclick="scoreBall(6)">6</button>
+      </div>
+      <!-- Wicket + Extras -->
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+        <button class="sbtn sW" style="height:48px" onclick="openWicketModal()">Wicket</button>
+        <button class="sbtn sX" style="height:48px" onclick="scoreExtra('Wd')">Wd</button>
+        <button class="sbtn sX" style="height:48px" onclick="scoreExtra('Nb')">Nb</button>
+        <button class="sbtn sX" style="height:48px" onclick="scoreExtra('B')">B</button>
+        <button class="sbtn sX" style="height:48px" onclick="scoreExtra('Lb')">Lb</button>
+      </div>
+      <button class="sbtn sU" style="width:100%;height:40px" onclick="undoLast()">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="margin-right:5px"><path stroke-linecap="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6M3 10l6-6"/></svg>
+        Undo Last Ball
+      </button>
+    </div>
+
+    <!-- Fall of wickets -->
+    <div class="card" style="padding:12px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Fall of Wickets</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px" id="sc-fow">
+        <span style="font-size:12px;color:var(--muted);background:var(--s2);padding:3px 9px;border-radius:7px;border:1px solid var(--border)">1/22 <span style="color:var(--dim)">(3.2)</span></span>
+        <span style="font-size:12px;color:var(--muted);background:var(--s2);padding:3px 9px;border-radius:7px;border:1px solid var(--border)">2/68 <span style="color:var(--dim)">(8.4)</span></span>
+        <span style="font-size:12px;color:var(--muted);background:var(--s2);padding:3px 9px;border-radius:7px;border:1px solid var(--border)">3/110 <span style="color:var(--dim)">(13.1)</span></span>
+        <span style="font-size:12px;color:var(--red);background:var(--red-lo);padding:3px 9px;border-radius:7px;border:1px solid rgba(227,27,35,.2)">4/157 <span style="color:rgba(227,27,35,.5)">(17.3)</span></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: SPECTATOR SCORECARD
+════════════════════════════════════════════ -->
+<div id="s-spectate" class="screen hidden">
+  <!-- Live ticker -->
+  <div class="ticker-bar">
+    <span class="ldot" style="background:#fff;margin-right:8px"></span>
+    LIVE · Gladiators 164/4 (18.2) vs Warriors 142 · Need 0 in 1.4 ov
+  </div>
+
+  <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div class="heading" style="font-size:20px">Gladiators vs Warriors</div>
+        <div style="font-size:12px;color:var(--muted)">T20 · 1st Innings · Surat Ground</div>
+      </div>
+      <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="go('s-home')">← Back</button>
+    </div>
+
+    <!-- Innings toggle -->
+    <div class="toggle">
+      <button class="toggle-btn on" onclick="swToggle(this)">1st Inn</button>
+      <button class="toggle-btn" onclick="swToggle(this)">2nd Inn</button>
+    </div>
+
+    <!-- Score summary -->
+    <div class="card" style="padding:16px;border-color:rgba(227,27,35,.15)">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+        <div class="heading" style="font-size:42px">164<span style="font-size:20px;font-weight:500;color:var(--muted)">/4</span></div>
+        <div style="text-align:right">
+          <div style="font-size:12px;color:var(--muted)">18.2 overs</div>
+          <div style="font-size:13px;font-weight:700;color:var(--green)">CRR 8.94</div>
+        </div>
+      </div>
+      <div style="font-size:13px;color:#fc8181;font-weight:600">Need 0 runs in 1.4 overs · RRR 0.00</div>
+      <div class="prog" style="margin-top:10px"><div class="prog-fill" style="width:91%"></div></div>
+    </div>
+
+    <!-- Batting scorecard -->
+    <div class="card" style="padding:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Batting</div>
+      <div style="display:grid;grid-template-columns:1fr 40px 40px 40px 40px 48px;gap:4px;font-size:10px;font-weight:700;color:var(--dim);margin-bottom:6px;padding:0 2px">
+        <div>Batsman</div><div style="text-align:right">R</div><div style="text-align:right">B</div><div style="text-align:right">4s</div><div style="text-align:right">6s</div><div style="text-align:right">SR</div>
+      </div>
+      <div class="div" style="margin-bottom:8px"></div>
+      <div id="batting-card" style="display:flex;flex-direction:column;gap:0">
+        <!-- rows generated by JS -->
+      </div>
+    </div>
+
+    <!-- Bowling scorecard -->
+    <div class="card" style="padding:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Bowling</div>
+      <div style="display:grid;grid-template-columns:1fr 40px 32px 40px 40px 40px;gap:4px;font-size:10px;font-weight:700;color:var(--dim);margin-bottom:6px;padding:0 2px">
+        <div>Bowler</div><div style="text-align:right">O</div><div style="text-align:right">M</div><div style="text-align:right">R</div><div style="text-align:right">W</div><div style="text-align:right">Eco</div>
+      </div>
+      <div class="div" style="margin-bottom:8px"></div>
+      <div id="bowling-card" style="display:flex;flex-direction:column;gap:0">
+      </div>
+    </div>
+
+    <!-- Recent overs -->
+    <div class="card" style="padding:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Recent Overs</div>
+      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">
+        <div class="card" style="padding:8px 10px;flex-shrink:0;background:var(--s2)">
+          <div style="font-size:10px;color:var(--dim);margin-bottom:5px">Ov 18</div>
+          <div style="display:flex;gap:3px">
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b1" style="width:26px;height:26px;font-size:10px">1</div>
+            <div class="ball b4" style="width:26px;height:26px;font-size:10px">4</div>
+            <div class="ball bW" style="width:26px;height:26px;font-size:9px">W</div>
+            <div class="ball b1" style="width:26px;height:26px;font-size:10px">2</div>
+          </div>
+          <div style="font-size:11px;font-weight:700;margin-top:4px">7 runs</div>
+        </div>
+        <div class="card" style="padding:8px 10px;flex-shrink:0;background:var(--s2)">
+          <div style="font-size:10px;color:var(--dim);margin-bottom:5px">Ov 17</div>
+          <div style="display:flex;gap:3px">
+            <div class="ball b6" style="width:26px;height:26px;font-size:10px">6</div>
+            <div class="ball b1" style="width:26px;height:26px;font-size:10px">1</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b4" style="width:26px;height:26px;font-size:10px">4</div>
+            <div class="ball b1" style="width:26px;height:26px;font-size:10px">2</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+          </div>
+          <div style="font-size:11px;font-weight:700;margin-top:4px">13 runs</div>
+        </div>
+        <div class="card" style="padding:8px 10px;flex-shrink:0;background:rgba(34,197,94,.05);border-color:rgba(34,197,94,.1)">
+          <div style="font-size:10px;color:var(--dim);margin-bottom:5px">Ov 16</div>
+          <div style="display:flex;gap:3px">
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+            <div class="ball b0" style="width:26px;height:26px;font-size:10px">0</div>
+          </div>
+          <div style="font-size:11px;font-weight:700;margin-top:4px;color:var(--green)">Maiden</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     SCREEN: PROFILE
+════════════════════════════════════════════ -->
+<div id="s-profile" class="screen hidden">
+  <div style="background:linear-gradient(180deg,rgba(227,27,35,.1),transparent);padding:52px 20px 20px">
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:20px">
+      <div class="av" style="width:68px;height:68px;font-size:24px;background:linear-gradient(135deg,#E31B23,#8B0000);border:2px solid rgba(227,27,35,.3)">RS
+        <div style="position:absolute;bottom:2px;right:2px;width:14px;height:14px;background:var(--green);border-radius:50%;border:2px solid var(--bg)"></div>
+      </div>
+      <div>
+        <div class="heading" style="font-size:22px">Rahul Sharma</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Mumbai · Right-hand bat · Off-spin</div>
+        <div style="display:flex;gap:6px">
+          <span class="tag tag-green">All-rounder</span>
+          <span class="tag" style="background:rgba(245,158,11,.1);color:#fcd34d;border:1px solid rgba(245,158,11,.15)">★ Rank #7</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+      <div><div class="heading" style="font-size:22px">42</div><div style="font-size:10px;color:var(--muted)">Matches</div></div>
+      <div><div class="heading" style="font-size:22px">847</div><div style="font-size:10px;color:var(--muted)">Runs</div></div>
+      <div><div class="heading" style="font-size:22px">38</div><div style="font-size:10px;color:var(--muted)">Wickets</div></div>
+      <div><div class="heading" style="font-size:22px;color:var(--amber)">5</div><div style="font-size:10px;color:var(--muted)">MVPs</div></div>
+    </div>
+  </div>
+
+  <div style="padding:0 20px">
+    <div class="toggle" style="margin-bottom:16px">
+      <button class="toggle-btn on" onclick="swToggle(this)">Batting</button>
+      <button class="toggle-btn" onclick="swToggle(this)">Bowling</button>
+      <button class="toggle-btn" onclick="swToggle(this)">Fielding</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+      <div class="card" style="padding:14px"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">INNINGS</div><div class="heading" style="font-size:28px">38</div></div>
+      <div class="card" style="padding:14px;border-color:rgba(227,27,35,.2)"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">HIGH SCORE</div><div class="heading" style="font-size:28px;color:var(--red)">118*</div></div>
+      <div class="card" style="padding:14px"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">AVERAGE</div><div class="heading" style="font-size:28px">42.3</div></div>
+      <div class="card" style="padding:14px"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">STRIKE RATE</div><div class="heading" style="font-size:28px">142.6</div></div>
+      <div class="card" style="padding:14px"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">50s / 100s</div><div class="heading" style="font-size:28px">8 / <span style="color:var(--amber)">3</span></div></div>
+      <div class="card" style="padding:14px"><div style="font-size:10px;color:var(--muted);margin-bottom:6px">4s / 6s</div><div class="heading" style="font-size:28px">86 / <span style="color:var(--red)">34</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     BOTTOM NAV
+════════════════════════════════════════════ -->
+<nav class="bnav">
+  <button class="bnav-btn act" id="nav-home" onclick="go('s-home')">
+    <div class="pip">
+      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+      </svg>
+    </div>Home
+  </button>
+  <button class="bnav-btn" id="nav-spectate" onclick="go('s-spectate')">
+    <div class="pip">
+      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" d="M15 10l4.553-2.069A1 1 0 0121 8.845v6.31a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+      </svg>
+    </div>Watch
+  </button>
+  <button class="bnav-btn" id="nav-profile" onclick="go('s-profile')">
+    <div class="pip">
+      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+      </svg>
+    </div>Profile
+  </button>
+</nav>
+
+</div><!-- #app -->
+
+<!-- ════════════════════════════════════════════
+     MODAL: WICKET
+════════════════════════════════════════════ -->
+<div id="modal-wicket" class="modal-bg hidden">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="heading" style="font-size:18px;margin-bottom:16px">Wicket — How Out?</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px" id="wicket-types">
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Bowled',this)">Bowled</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Caught',this)">Caught</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('LBW',this)">LBW</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Run Out',this)">Run Out</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Stumped',this)">Stumped</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Hit Wicket',this)">Hit Wicket</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Retired Out',this)">Retired Out</button>
+      <button class="btn btn-ghost" style="padding:13px;font-size:13px" onclick="selWicket('Retired Hurt',this)">Retired Hurt</button>
+    </div>
+
+    <!-- Caught section (shown when Caught selected) -->
+    <div id="caught-section" class="hidden">
+      <div class="div" style="margin-bottom:14px"></div>
+
+      <div style="margin-bottom:10px">
+        <div class="label">Caught by</div>
+        <select class="inp" id="caught-by">
+          <option>S. Khan (Bowler)</option>
+          <option>M. Rao</option>
+          <option>D. Gupta</option>
+          <option>J. Mehta</option>
+          <option>N. Sharma</option>
+          <option>P. Verma</option>
+        </select>
+      </div>
+
+      <!-- Drop catch toggle -->
+      <div style="background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.15);border-radius:12px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#f87171">Drop Catch</div>
+          <div style="font-size:11px;color:var(--muted)">Fielder dropped it — still a wicket?</div>
+        </div>
+        <label style="position:relative;width:44px;height:24px;cursor:pointer">
+          <input type="checkbox" id="drop-catch-toggle" style="opacity:0;width:0;height:0" onchange="toggleDropCatch()">
+          <span id="drop-catch-slider" style="position:absolute;inset:0;background:var(--s3);border-radius:12px;transition:.2s;border:1px solid var(--border)">
+            <span style="position:absolute;width:18px;height:18px;background:var(--muted);border-radius:50%;left:2px;top:2px;transition:.2s;display:block" id="drop-knob"></span>
+          </span>
+        </label>
+      </div>
+
+      <!-- Drop catch: who dropped -->
+      <div id="drop-who-row" class="hidden" style="margin-bottom:14px">
+        <div class="label">Dropped by</div>
+        <select class="inp" id="dropped-by">
+          <option>M. Rao</option>
+          <option>D. Gupta</option>
+          <option>J. Mehta</option>
+          <option>S. Khan</option>
+        </select>
+        <div style="font-size:11px;color:var(--amber);margin-top:6px">⚠ Drop catch recorded — not a wicket. Ball continues.</div>
+      </div>
+    </div>
+
+    <!-- Run out: who ran out -->
+    <div id="runout-section" class="hidden">
+      <div class="div" style="margin-bottom:14px"></div>
+      <div style="margin-bottom:10px">
+        <div class="label">Run out by (fielder)</div>
+        <select class="inp" id="runout-by">
+          <option>S. Khan</option><option>M. Rao</option><option>D. Gupta</option>
+        </select>
+      </div>
+      <div style="margin-bottom:14px">
+        <div class="label">Batsman run out</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn btn-ghost" style="padding:12px;font-size:13px" id="ro-striker" onclick="selRunOut('striker',this)">S. Kumar (striker)</button>
+          <button class="btn btn-ghost" style="padding:12px;font-size:13px" id="ro-nonstriker" onclick="selRunOut('non-striker',this)">R. Patel (non-striker)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- New batsman -->
+    <div id="new-batsman-section" class="hidden">
+      <div class="div" style="margin-bottom:14px"></div>
+      <div class="label">New Batsman</div>
+      <select class="inp" id="new-batsman" style="margin-bottom:14px">
+        <option>A. Patel</option>
+        <option>S. Singh</option>
+        <option>M. Verma</option>
+        <option>K. Rao</option>
+        <option>P. Sharma</option>
+      </select>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-ghost" style="flex:1;padding:14px;font-size:14px" onclick="closeModal('modal-wicket')">Cancel</button>
+      <button class="btn btn-red" style="flex:2;padding:14px;font-size:14px" id="confirm-wicket-btn" onclick="confirmWicket()">Confirm Wicket</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MODAL: ASSIGN ROLE (lobby)
+════════════════════════════════════════════ -->
+<div id="modal-assign" class="modal-bg hidden">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <div class="av" id="assign-av" style="width:42px;height:42px;font-size:16px;background:linear-gradient(135deg,#E31B23,#8B0000)">RS</div>
+      <div>
+        <div class="heading" style="font-size:17px" id="assign-name">R. Sharma</div>
+        <div style="font-size:12px;color:var(--muted)" id="assign-current">Currently unassigned</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+      <!-- Team -->
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Assign to Team</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="btn btn-ghost" style="padding:12px;font-size:13px" id="assign-team-a" onclick="assignTeam('A',this)">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--red);display:inline-block;margin-right:5px"></span>Titans
+        </button>
+        <button class="btn btn-ghost" style="padding:12px;font-size:13px" id="assign-team-b" onclick="assignTeam('B',this)">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--blue);display:inline-block;margin-right:5px"></span>Rockets
+        </button>
+      </div>
+      <!-- Roles -->
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:6px 0 2px">Assign Role</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <button class="btn btn-ghost" style="padding:11px;font-size:12px" onclick="assignRole('Captain',this)">Captain</button>
+        <button class="btn btn-ghost" style="padding:11px;font-size:12px" onclick="assignRole('Scorer',this)">Scorer</button>
+        <button class="btn btn-ghost" style="padding:11px;font-size:12px" onclick="assignRole('Joker',this)">🃏 Joker</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost" style="flex:1;padding:13px;font-size:13px" onclick="closeModal('modal-assign')">Done</button>
+      <button class="btn btn-danger" style="flex:1;padding:13px;font-size:13px" onclick="removePlayer()">Remove</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════
+const state = {
+  currentScreen: 's-home',
+  fmt: '5',
+  tossWinner: null,
+  tossChoice: null,
+  wicketType: null,
+  runOutTarget: null,
+  selectedLobbyPlayer: null,
+  players: [
+    {id:1,name:'R. Sharma',  init:'RS',color:'#E31B23,#8B0000', team:null,role:null},
+    {id:2,name:'V. Kumar',   init:'VK',color:'#3b82f6,#1d4ed8', team:null,role:null},
+    {id:3,name:'A. Patel',   init:'AP',color:'#22c55e,#15803d', team:'A',role:null},
+    {id:4,name:'S. Singh',   init:'SS',color:'#f59e0b,#d97706', team:'A',role:'Captain'},
+    {id:5,name:'M. Verma',   init:'MV',color:'#8b5cf6,#7c3aed', team:'A',role:null},
+    {id:6,name:'K. Rao',     init:'KR',color:'#ec4899,#be185d', team:'A',role:'Scorer'},
+    {id:7,name:'S. Khan',    init:'SK',color:'#06b6d4,#0891b2', team:'B',role:null},
+    {id:8,name:'M. Rao',     init:'MR',color:'#f59e0b,#d97706', team:'B',role:'Captain'},
+    {id:9,name:'D. Gupta',   init:'DG',color:'#22c55e,#15803d', team:'B',role:null},
+    {id:10,name:'J. Mehta',  init:'JM',color:'#e879f9,#c026d3', team:'B',role:'Scorer'},
+    {id:11,name:'N. Sharma', init:'NS',color:'#f87171,#ef4444', team:'B',role:null},
+    {id:12,name:'P. Verma',  init:'PV',color:'#34d399,#10b981', team:null,role:null},
+  ],
+  // match score state
+  score: 164, wickets: 4, legalBalls: 110,
+  striker: {name:'S. Kumar', runs:64, balls:38, fours:6, sixes:3},
+  nonStriker: {name:'R. Patel', runs:28, balls:19, fours:2, sixes:0},
+  bowler: {name:'A. Singh', balls:18, maiden:0, runs:22, wkts:1},
+};
+
+// ═══════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════
+const navMap = {'s-home':'nav-home','s-spectate':'nav-spectate','s-profile':'nav-profile'};
+function go(id) {
+  document.getElementById(state.currentScreen).classList.add('hidden');
+  document.getElementById(id).classList.remove('hidden');
+  state.currentScreen = id;
+  document.querySelectorAll('.bnav-btn').forEach(b=>b.classList.remove('act'));
+  if(navMap[id]) document.getElementById(navMap[id]).classList.add('act');
+  document.getElementById(id).scrollTop = 0;
+  if(id==='s-lobby') renderLobby();
+  if(id==='s-spectate') renderScorecard();
+}
+
+// ═══════════════════════════════════════
+//  JOIN CODE
+// ═══════════════════════════════════════
+const VALID_CODES = {'SP-7K2R':true,'SP-9X3K':true};
+function checkJoinCode() {
+  const v = document.getElementById('join-code-input').value;
+  const btn = document.getElementById('join-btn');
+  const err = document.getElementById('join-code-err');
+  if(v.length < 7){btn.disabled=true;btn.style.opacity='.4';err.classList.add('hidden');return;}
+  if(VALID_CODES[v]){btn.disabled=false;btn.style.opacity='1';err.classList.add('hidden');}
+  else{btn.disabled=true;btn.style.opacity='.4';err.classList.remove('hidden');}
+}
+function joinMatch(){
+  // In real app: POST join request. Here navigate to lobby as spectator/player
+  go('s-lobby');
+}
+
+// ═══════════════════════════════════════
+//  CREATE MATCH
+// ═══════════════════════════════════════
+let selFmtBtn = document.querySelector('#format-sel button');
+function selFmt(btn, fmt) {
+  document.querySelectorAll('#format-sel button').forEach(b=>{b.className='btn btn-ghost';b.style.padding='12px';b.style.fontSize='13px'});
+  btn.className='btn btn-red'; btn.style.padding='12px'; btn.style.fontSize='13px';
+  state.fmt = fmt;
+  const custRow = document.getElementById('custom-overs-row');
+  fmt==='custom' ? custRow.classList.remove('hidden') : custRow.classList.add('hidden');
+}
+function createMatch() {
+  // Generate code
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code='SP-';
+  for(let i=0;i<4;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+  VALID_CODES[code]=true;
+  // Show success then go to lobby
+  alert('Match created!\nCode: '+code+'\nShare this with players to join.');
+  go('s-lobby');
+}
+
+// ═══════════════════════════════════════
+//  LOBBY
+// ═══════════════════════════════════════
+function renderLobby() {
+  const ta = document.getElementById('team-a');
+  const tb = document.getElementById('team-b');
+  const un = document.getElementById('lobby-unassigned');
+  const js = document.getElementById('joker-slot');
+  ta.innerHTML=''; tb.innerHTML=''; un.innerHTML='';
+
+  let joker = state.players.find(p=>p.role==='Joker');
+  js.innerHTML = joker
+    ? `<div style="display:flex;align-items:center;gap:8px"><div class="av" style="width:28px;height:28px;font-size:10px;background:linear-gradient(135deg,${joker.color})">${joker.init}</div><span style="font-size:13px;font-weight:600">${joker.name}</span></div>`
+    : '<span style="font-size:13px;color:var(--dim)">Not assigned yet</span>';
+
+  state.players.forEach(p => {
+    if(p.role==='Joker') return;
+    const el = makeLobbyPlayerEl(p);
+    if(p.team==='A') ta.appendChild(el);
+    else if(p.team==='B') tb.appendChild(el);
+    else un.appendChild(makeUnassignedEl(p));
+  });
+}
+
+function makeLobbyPlayerEl(p) {
+  const d = document.createElement('div');
+  d.style.cssText='display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 4px;border-radius:8px;transition:.15s';
+  d.onmouseenter=()=>d.style.background='rgba(255,255,255,.04)';
+  d.onmouseleave=()=>d.style.background='';
+  d.onclick=()=>openAssignModal(p);
+  let roleHtml='';
+  if(p.role==='Captain') roleHtml='<span class="role role-cap">C</span>';
+  else if(p.role==='Scorer') roleHtml='<span class="role role-scorer">S</span>';
+  d.innerHTML=`
+    <div class="av" style="width:30px;height:30px;font-size:10px;background:linear-gradient(135deg,${p.color})">${p.init}</div>
+    <span style="font-size:12px;font-weight:600;flex:1">${p.name}</span>
+    ${roleHtml}
+  `;
+  return d;
+}
+
+function makeUnassignedEl(p) {
+  const d = document.createElement('div');
+  d.style.cssText='display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--s2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:.15s';
+  d.onmouseenter=()=>d.style.borderColor='var(--border2)';
+  d.onmouseleave=()=>d.style.borderColor='var(--border)';
+  d.onclick=()=>openAssignModal(p);
+  d.innerHTML=`
+    <div class="av" style="width:26px;height:26px;font-size:9px;background:linear-gradient(135deg,${p.color})">${p.init}</div>
+    <span style="font-size:12px;font-weight:600">${p.name}</span>
+  `;
+  return d;
+}
+
+function openAssignModal(p) {
+  state.selectedLobbyPlayer = p;
+  document.getElementById('assign-av').style.background=`linear-gradient(135deg,${p.color})`;
+  document.getElementById('assign-av').textContent=p.init;
+  document.getElementById('assign-name').textContent=p.name;
+  const cur = p.team ? `Team ${p.team==='A'?'Titans':'Rockets'}${p.role?', '+p.role:''}` : 'Unassigned';
+  document.getElementById('assign-current').textContent=cur;
+  // Highlight current team
+  document.getElementById('assign-team-a').className='btn '+(p.team==='A'?'btn-red':'btn-ghost');
+  document.getElementById('assign-team-b').className='btn '+(p.team==='B'?'btn-red':'btn-ghost');
+  ['assign-team-a','assign-team-b'].forEach(id=>{const el=document.getElementById(id);el.style.padding='12px';el.style.fontSize='13px'});
+  openModal('modal-assign');
+}
+
+function assignTeam(t, btn) {
+  if(!state.selectedLobbyPlayer) return;
+  state.selectedLobbyPlayer.team = t;
+  document.getElementById('assign-team-a').className='btn '+(t==='A'?'btn-red':'btn-ghost');
+  document.getElementById('assign-team-b').className='btn '+(t==='B'?'btn-red':'btn-ghost');
+  ['assign-team-a','assign-team-b'].forEach(id=>{const el=document.getElementById(id);el.style.padding='12px';el.style.fontSize='13px'});
+}
+
+function assignRole(role, btn) {
+  if(!state.selectedLobbyPlayer) return;
+  // Joker removes team
+  if(role==='Joker') { state.selectedLobbyPlayer.role='Joker'; state.selectedLobbyPlayer.team=null; }
+  // Remove old scorer/captain of same team if needed
+  else {
+    if(role==='Captain' || role==='Scorer') {
+      state.players.forEach(p=>{ if(p.team===state.selectedLobbyPlayer.team && p.role===role && p!==state.selectedLobbyPlayer) p.role=null; });
+    }
+    state.selectedLobbyPlayer.role = role;
+  }
+  document.querySelectorAll('#modal-assign .btn-ghost[onclick*="assignRole"]').forEach(b=>b.className='btn btn-ghost');
+  btn.className='btn btn-red'; btn.style.padding='11px'; btn.style.fontSize='12px';
+  document.getElementById('assign-current').textContent = (state.selectedLobbyPlayer.team?`Team ${state.selectedLobbyPlayer.team==='A'?'Titans':'Rockets'}, `:'') + role;
+}
+
+function removePlayer() {
+  if(state.selectedLobbyPlayer){state.selectedLobbyPlayer.team=null;state.selectedLobbyPlayer.role=null;}
+  closeModal('modal-assign');
+  renderLobby();
+}
+
+// ═══════════════════════════════════════
+//  TOSS
+// ═══════════════════════════════════════
+function flipCoin() {
+  const coin = document.getElementById('coin');
+  const res = ['Heads','Tails'][Math.floor(Math.random()*2)];
+  coin.style.transform='rotateY(720deg)';
+  setTimeout(()=>{coin.style.transform='';document.getElementById('toss-result').textContent=`Result: ${res}`;},500);
+}
+function selTossWinner(name, btn) {
+  state.tossWinner = name;
+  document.querySelectorAll('#s-toss .card button').forEach(b=>{b.className='btn btn-ghost';b.style.padding='14px';b.style.fontSize='14px'});
+  btn.className='btn btn-red'; btn.style.padding='14px'; btn.style.fontSize='14px';
+}
+function selTossChoice(choice, btn) {
+  state.tossChoice = choice;
+  document.querySelectorAll('#toss-choice-card button').forEach(b=>{b.className='btn btn-ghost';b.style.padding='14px';b.style.fontSize='14px'});
+  btn.className='btn btn-red'; btn.style.padding='14px'; btn.style.fontSize='14px';
+}
+
+// ═══════════════════════════════════════
+//  SCORING
+// ═══════════════════════════════════════
+function getOversStr(balls) {
+  return Math.floor(balls/6)+'.'+( balls%6);
+}
+function updateScoreDisplay() {
+  const s = state;
+  document.getElementById('sc-score').innerHTML = s.score+'<span style="font-size:32px;font-weight:500;color:var(--muted)">/' + s.wickets+'</span>';
+  document.getElementById('sc-overs-label').textContent = getOversStr(s.legalBalls)+' ov';
+  document.getElementById('sc-striker').textContent = s.striker.name;
+  document.getElementById('sc-striker-score').innerHTML = s.striker.runs+' <span style="font-size:11px;font-weight:400;color:var(--muted)">('+s.striker.balls+'b)</span>';
+  document.getElementById('sc-striker-sr').textContent = 'SR '+(s.striker.balls?Math.round(s.striker.runs/s.striker.balls*100):0)+' · 4s:'+s.striker.fours+' · 6s:'+s.striker.sixes;
+  document.getElementById('sc-nonstriker').textContent = s.nonStriker.name;
+  document.getElementById('sc-nonstriker-score').innerHTML = s.nonStriker.runs+' <span style="font-size:11px;font-weight:400;color:var(--muted)">('+s.nonStriker.balls+'b)</span>';
+  // Bowler figures
+  const bOv = Math.floor(s.bowler.balls/6)+'.'+( s.bowler.balls%6);
+  document.getElementById('sc-bowler-fig').textContent = ' '+bOv+'-'+s.bowler.maiden+'-'+s.bowler.runs+'-'+s.bowler.wkts;
+  // Progress
+  const maxBalls = 20*6; // T20
+  document.getElementById('sc-prog').style.width = Math.min(100, s.legalBalls/maxBalls*100)+'%';
+}
+
+function rotateStrike() {
+  const tmp = {...state.striker}; state.striker = {...state.nonStriker}; state.nonStriker = tmp;
+}
+
+function scoreBall(runs) {
+  state.score += runs;
+  state.striker.runs += runs;
+  state.striker.balls++;
+  state.legalBalls++;
+  state.bowler.balls++;
+  state.bowler.runs += runs;
+  if(runs===4) state.striker.fours++;
+  if(runs===6) state.striker.sixes++;
+  // dot ball maiden tracking (simplified: count dots per over)
+  if(runs===0) state.bowler._dotBalls = (state.bowler._dotBalls||0)+1;
+  if(state.legalBalls%6===0) {
+    if((state.bowler._dotBalls||0)===6) state.bowler.maiden++;
+    state.bowler._dotBalls = 0;
+    rotateStrike(); // end of over
+  }
+  // rotate on odd runs mid-over
+  if(runs===1||runs===3||runs===5) rotateStrike();
+  updateScoreDisplay();
+  showBallFeedback(runs);
+}
+
+function scoreExtra(type) {
+  state.score++;
+  // Wide/No-ball: run to bowler, NOT a legal ball
+  // Bye/Leg-bye: legal ball, no runs to bowler
+  if(type==='Wd'||type==='Nb') {
+    state.bowler.runs++;
+  } else {
+    // Bye / Leg Bye — legal delivery
+    state.legalBalls++;
+    state.bowler.balls++;
+    state.striker.balls++;
+  }
+  // Wide and No-ball don't count as legal delivery
+  showBallFeedback(type);
+}
+
+function undoLast() {
+  // Simplified: just a visual indication
+  showToast('Last ball undone');
+}
+
+let feedbackTimer;
+function showBallFeedback(val) {
+  // Flash effect
+  const el = document.getElementById('sc-score');
+  el.style.transform='scale(1.08)'; el.style.transition='transform .1s';
+  setTimeout(()=>{el.style.transform='scale(1)'},150);
+}
+
+// ═══════════════════════════════════════
+//  WICKET MODAL
+// ═══════════════════════════════════════
+function openWicketModal() {
+  state.wicketType = null;
+  document.getElementById('caught-section').classList.add('hidden');
+  document.getElementById('runout-section').classList.add('hidden');
+  document.getElementById('new-batsman-section').classList.add('hidden');
+  document.getElementById('drop-catch-toggle').checked=false;
+  document.getElementById('drop-who-row').classList.add('hidden');
+  document.querySelectorAll('#wicket-types button').forEach(b=>{b.className='btn btn-ghost';b.style.padding='13px';b.style.fontSize='13px'});
+  openModal('modal-wicket');
+}
+
+function selWicket(type, btn) {
+  state.wicketType = type;
+  document.querySelectorAll('#wicket-types button').forEach(b=>{b.className='btn btn-ghost';b.style.padding='13px';b.style.fontSize='13px'});
+  btn.className='btn btn-red'; btn.style.padding='13px'; btn.style.fontSize='13px';
+  document.getElementById('caught-section').classList.toggle('hidden', type!=='Caught');
+  document.getElementById('runout-section').classList.toggle('hidden', type!=='Run Out');
+  document.getElementById('new-batsman-section').classList.remove('hidden');
+}
+
+function toggleDropCatch() {
+  const on = document.getElementById('drop-catch-toggle').checked;
+  const knob = document.getElementById('drop-knob');
+  const slider = document.getElementById('drop-catch-slider');
+  if(on){knob.style.left='22px';knob.style.background='#f87171';slider.style.background='rgba(239,68,68,.2)';}
+  else{knob.style.left='2px';knob.style.background='var(--muted)';slider.style.background='var(--s3)';}
+  document.getElementById('drop-who-row').classList.toggle('hidden', !on);
+  // If drop: not a wicket, just a drop
+  document.getElementById('confirm-wicket-btn').textContent = on ? 'Record Drop (Continue)' : 'Confirm Wicket';
+}
+
+function selRunOut(target, btn) {
+  state.runOutTarget = target;
+  document.getElementById('ro-striker').className='btn btn-ghost';
+  document.getElementById('ro-nonstriker').className='btn btn-ghost';
+  ['ro-striker','ro-nonstriker'].forEach(id=>{const e=document.getElementById(id);e.style.padding='12px';e.style.fontSize='13px'});
+  btn.className='btn btn-red'; btn.style.padding='12px'; btn.style.fontSize='13px';
+}
+
+function confirmWicket() {
+  const isDropped = document.getElementById('drop-catch-toggle').checked;
+  if(isDropped) {
+    showToast('Drop catch recorded. Ball continues.');
+    closeModal('modal-wicket');
+    return;
+  }
+  if(!state.wicketType){showToast('Select dismissal type');return;}
+  // Wicket confirmed
+  state.wickets++;
+  state.striker.balls++;
+  state.legalBalls++;
+  // Swap striker with new batsman
+  const nb = document.getElementById('new-batsman')?.value || 'New Batsman';
+  state.striker = {name:nb, runs:0, balls:0, fours:0, sixes:0};
+  updateScoreDisplay();
+  closeModal('modal-wicket');
+  showToast('Wicket! '+state.wicketType);
+}
+
+// ═══════════════════════════════════════
+//  SCORECARD
+// ═══════════════════════════════════════
+const battingData = [
+  {name:'R. Dhawan', how:'b Singh', runs:42, balls:28, fours:5, sixes:2, out:true},
+  {name:'S. Kumar',  how:'batting*', runs:64, balls:38, fours:6, sixes:3, out:false},
+  {name:'A. Khan',   how:'c Rao b Mehta', runs:18, balls:14, fours:2, sixes:0, out:true},
+  {name:'V. Patel',  how:'c & b Singh', runs:22, balls:16, fours:3, sixes:0, out:true},
+  {name:'R. Patel',  how:'batting', runs:28, balls:19, fours:2, sixes:0, out:false},
+];
+const bowlingData = [
+  {name:'A. Singh',  o:4, m:0, r:32, w:2},
+  {name:'J. Mehta',  o:4, m:1, r:28, w:1},
+  {name:'M. Rao',    o:3, m:0, r:26, w:0},
+  {name:'D. Gupta',  o:4, m:0, r:38, w:1},
+  {name:'S. Khan',   o:3.2, m:0, r:30, w:0},
+];
+
+function renderScorecard() {
+  const bc = document.getElementById('batting-card');
+  bc.innerHTML = battingData.map(b=>`
+    <div style="display:grid;grid-template-columns:1fr 40px 40px 40px 40px 48px;gap:4px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;font-weight:${b.out?'500':'700'};color:${b.out?'var(--muted)':'var(--txt)'}">${b.name}${b.out?'':' <span style="font-size:10px;color:var(--red);font-weight:800">*</span>'}</div>
+        <div style="font-size:10px;color:var(--dim)">${b.how}</div>
+      </div>
+      <div style="font-size:14px;font-weight:800;text-align:right;color:${b.out?'var(--txt)':b.runs>=50?'var(--red)':'var(--txt)'}">${b.runs}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${b.balls}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${b.fours}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${b.sixes}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${b.balls?Math.round(b.runs/b.balls*100):'-'}</div>
+    </div>
+  `).join('');
+
+  const bow = document.getElementById('bowling-card');
+  bow.innerHTML = bowlingData.map(b=>`
+    <div style="display:grid;grid-template-columns:1fr 40px 32px 40px 40px 40px;gap:4px;align-items:center;padding:8px 2px;border-bottom:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:500">${b.name}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${b.o}</div>
+      <div style="font-size:12px;text-align:right;color:${b.m>0?'var(--green)':'var(--muted)'}">${b.m}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${b.r}</div>
+      <div style="font-size:14px;font-weight:${b.w>0?'800':'400'};text-align:right;color:${b.w>0?'var(--red)':'var(--muted)'}">${b.w}</div>
+      <div style="font-size:12px;text-align:right;color:var(--muted)">${(b.r/b.o).toFixed(1)}</div>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+function swToggle(btn) {
+  btn.closest('.toggle').querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+}
+
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if(!t){t=document.createElement('div');t.id='toast';t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(30,30,30,.95);border:1px solid rgba(255,255,255,.12);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:999;transition:opacity .2s;max-width:300px;text-align:center;backdrop-filter:blur(10px)';document.body.appendChild(t);}
+  t.textContent=msg; t.style.opacity='1';
+  clearTimeout(t._timer);
+  t._timer=setTimeout(()=>t.style.opacity='0',2000);
+}
+
+// Close modals on bg tap
+document.querySelectorAll('.modal-bg').forEach(bg=>{
+  bg.addEventListener('click',e=>{if(e.target===bg) bg.classList.add('hidden');});
+});
+
+// Init
+renderLobby();
+updateScoreDisplay();
+</script>
+</body>
+</html>

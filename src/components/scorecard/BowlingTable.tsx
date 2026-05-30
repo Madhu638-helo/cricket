@@ -27,7 +27,7 @@ export default function BowlingTable({ players, balls }: BowlingTableProps) {
           <th>M</th>
           <th>R</th>
           <th>W</th>
-          <th>ER</th>
+          <th>Eco</th>
         </tr>
       </thead>
       <tbody>
@@ -37,13 +37,13 @@ export default function BowlingTable({ players, balls }: BowlingTableProps) {
             <tr key={s.player.id}>
               <td>{s.player.name}</td>
               <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>{formatOvers(legalBalls)}</td>
-              <td>{s.maidens}</td>
+              <td style={{ color: s.maidens > 0 ? 'var(--green)' : 'inherit', fontWeight: s.maidens > 0 ? 600 : 400 }}>{s.maidens}</td>
               <td>{s.runs}</td>
-              <td style={{ color: s.wickets > 0 ? 'var(--red)' : 'var(--text-2)', fontWeight: s.wickets > 0 ? 700 : 400 }}>
+              <td style={{ color: s.wickets > 0 ? 'var(--red)' : 'var(--muted)', fontWeight: s.wickets > 0 ? 700 : 400 }}>
                 {s.wickets}
               </td>
-              <td style={{ color: s.economy > 10 ? 'var(--red)' : s.economy > 7 ? 'var(--amber)' : 'var(--green)' }}>
-                {s.economy.toFixed(2)}
+              <td style={{ color: 'var(--muted)' }}>
+                {s.economy.toFixed(1)}
               </td>
             </tr>
           );

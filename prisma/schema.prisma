@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model audit_logs {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String?  @db.Uuid
+  action      String
+  entity_type String?
+  entity_id   String?  @db.Uuid
+  meta        Json?
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  user        User?    @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ball_overrides {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ball_id    String   @db.Uuid
+  admin_id   String?  @db.Uuid
+  reason     String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User?    @relation(fields: [admin_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  balls      balls    @relation(fields: [ball_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model balls {
+  id                                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  innings_id                            String           @db.Uuid
+  over_number                           Int
+  ball_number                           Int
+  delivery_number                       Int
+  batsman_id                            String           @db.Uuid
+  bowler_id                             String           @db.Uuid
+  non_striker_id                        String?          @db.Uuid
+  runs_off_bat                          Int              @default(0)
+  extras                                Int              @default(0)
+  extra_type                            String?
+  is_wicket                             Boolean          @default(false)
+  wicket_type                           String?
+  fielder_id                            String?          @db.Uuid
+  is_free_hit                           Boolean          @default(false)
+  created_at                            DateTime         @default(now()) @db.Timestamptz(6)
+  ball_overrides                        ball_overrides[]
+  players_balls_batsman_idToplayers     players          @relation("balls_batsman_idToplayers", fields: [batsman_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  players_balls_bowler_idToplayers      players          @relation("balls_bowler_idToplayers", fields: [bowler_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  players_balls_fielder_idToplayers     players?         @relation("balls_fielder_idToplayers", fields: [fielder_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  innings                               innings          @relation(fields: [innings_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  players_balls_non_striker_idToplayers players?         @relation("balls_non_striker_idToplayers", fields: [non_striker_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([innings_id, over_number, ball_number], map: "balls_innings_id_idx")
+}
+
+model batting_career_stats {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String   @unique @db.Uuid
+  matches       Int      @default(0)
+  innings       Int      @default(0)
+  runs          Int      @default(0)
+  balls_faced   Int      @default(0)
+  fours         Int      @default(0)
+  sixes         Int      @default(0)
+  fifties       Int      @default(0)
+  hundreds      Int      @default(0)
+  highest_score Int      @default(0)
+  not_outs      Int      @default(0)
+  average       Decimal  @default(0) @db.Decimal(8, 2)
+  strike_rate   Decimal  @default(0) @db.Decimal(8, 2)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([runs(sort: Desc)], map: "batting_stats_runs_idx")
+}
+
+model bowling_career_stats {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String   @unique @db.Uuid
+  matches        Int      @default(0)
+  overs_bowled   Decimal  @default(0) @db.Decimal(8, 1)
+  runs_conceded  Int      @default(0)
+  wickets        Int      @default(0)
+  maidens        Int      @default(0)
+  dot_balls      Int      @default(0)
+  economy        Decimal  @default(0) @db.Decimal(8, 2)
+  strike_rate    Decimal  @default(0) @db.Decimal(8, 2)
+  best_figures   String   @default("-")
+  five_wkt_hauls Int      @default(0)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([wickets(sort: Desc)], map: "bowling_stats_wickets_idx")
+}
+
+model fielding_career_stats {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String   @unique @db.Uuid
+  catches         Int      @default(0)
+  dropped_catches Int      @default(0)
+  run_outs        Int      @default(0)
+  stumpings       Int      @default(0)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model innings {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id       String         @db.Uuid
+  team_id        String         @db.Uuid
+  innings_number Int
+  total_runs     Int            @default(0)
+  total_wickets  Int            @default(0)
+  total_balls    Int            @default(0)
+  total_extras   Int            @default(0)
+  status         String         @default("active")
+  target         Int?
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  balls          balls[]
+  matches        matches        @relation(fields: [match_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  teams          teams          @relation(fields: [team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  partnerships   partnerships[]
+
+  @@unique([match_id, innings_number])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model leaderboards {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  category   String
+  period     String
+  rank       Int
+  score      Decimal  @default(0) @db.Decimal(10, 4)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, category, period])
+  @@index([category, period, rank], map: "leaderboards_rank_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model matches {
+  id                                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id                          String    @db.Uuid
+  match_number                        Int
+  status                              String    @default("setup")
+  overs                               Int
+  team1_id                            String?   @db.Uuid
+  team2_id                            String?   @db.Uuid
+  toss_winner_id                      String?   @db.Uuid
+  toss_decision                       String?
+  batting_first                       String?   @db.Uuid
+  result                              String?
+  winner_id                           String?   @db.Uuid
+  created_at                          DateTime  @default(now()) @db.Timestamptz(6)
+  ground                              String?
+  is_paused                           Boolean   @default(false)
+  innings                             innings[]
+  teams_matches_batting_firstToteams  teams?    @relation("matches_batting_firstToteams", fields: [batting_first], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sessions                            sessions  @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  teams_matches_team1_idToteams       teams?    @relation("matches_team1_idToteams", fields: [team1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teams_matches_team2_idToteams       teams?    @relation("matches_team2_idToteams", fields: [team2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teams_matches_toss_winner_idToteams teams?    @relation("matches_toss_winner_idToteams", fields: [toss_winner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teams_matches_winner_idToteams      teams?    @relation("matches_winner_idToteams", fields: [winner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model notifications {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  type       String
+  title      String
+  body       String?
+  is_read    Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model partnerships {
+  id                                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  innings_id                                String   @db.Uuid
+  batsman1_id                               String   @db.Uuid
+  batsman2_id                               String?  @db.Uuid
+  runs                                      Int      @default(0)
+  balls                                     Int      @default(0)
+  wicket_number                             Int?
+  created_at                                DateTime @default(now()) @db.Timestamptz(6)
+  players_partnerships_batsman1_idToplayers players  @relation("partnerships_batsman1_idToplayers", fields: [batsman1_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  players_partnerships_batsman2_idToplayers players? @relation("partnerships_batsman2_idToplayers", fields: [batsman2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  innings                                   innings  @relation(fields: [innings_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model players {
+  id                                             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id                                     String         @db.Uuid
+  team_id                                        String?        @db.Uuid
+  name                                           String
+  is_scorer                                      Boolean        @default(false)
+  joined_at                                      DateTime       @default(now()) @db.Timestamptz(6)
+  is_joker                                       Boolean        @default(false)
+  user_id                                        String?        @db.Uuid
+  is_captain                                     Boolean        @default(false)
+  approval_status                                String         @default("approved")
+  balls_balls_batsman_idToplayers                balls[]        @relation("balls_batsman_idToplayers")
+  balls_balls_bowler_idToplayers                 balls[]        @relation("balls_bowler_idToplayers")
+  balls_balls_fielder_idToplayers                balls[]        @relation("balls_fielder_idToplayers")
+  balls_balls_non_striker_idToplayers            balls[]        @relation("balls_non_striker_idToplayers")
+  partnerships_partnerships_batsman1_idToplayers partnerships[] @relation("partnerships_batsman1_idToplayers")
+  partnerships_partnerships_batsman2_idToplayers partnerships[] @relation("partnerships_batsman2_idToplayers")
+  sessions                                       sessions       @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  teams_players_team_idToteams                   teams?         @relation("players_team_idToteams", fields: [team_id], references: [id], onUpdate: NoAction)
+  user                                           User?          @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+  teams_teams_captain_idToplayers                teams[]        @relation("teams_captain_idToplayers")
+
+  @@unique([session_id, name])
+}
+
+model rankings {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String   @db.Uuid
+  category    String
+  period      String
+  rank        Int
+  score       Decimal  @db.Decimal(10, 4)
+  recorded_at DateTime @default(now()) @db.Timestamptz(6)
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sessions {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code       String    @unique @db.VarChar(6)
+  name       String?
+  status     String    @default("lobby")
+  owner_id   String?   @db.Uuid
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  ground     String?
+  match_date DateTime? @db.Date
+  match_time DateTime? @db.Time(6)
+  matches    matches[]
+  players    players[]
+  user       User?     @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+  teams      teams[]
+}
+
+model teams {
+  id                                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id                            String    @db.Uuid
+  name                                  String
+  created_at                            DateTime  @default(now()) @db.Timestamptz(6)
+  color                                 String?
+  captain_id                            String?   @db.Uuid
+  innings                               innings[]
+  matches_matches_batting_firstToteams  matches[] @relation("matches_batting_firstToteams")
+  matches_matches_team1_idToteams       matches[] @relation("matches_team1_idToteams")
+  matches_matches_team2_idToteams       matches[] @relation("matches_team2_idToteams")
+  matches_matches_toss_winner_idToteams matches[] @relation("matches_toss_winner_idToteams")
+  matches_matches_winner_idToteams      matches[] @relation("matches_winner_idToteams")
+  players_players_team_idToteams        players[] @relation("players_team_idToteams")
+  players_teams_captain_idToplayers     players?  @relation("teams_captain_idToplayers", fields: [captain_id], references: [id], onUpdate: NoAction)
+  sessions                              sessions  @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model User {
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String
+  password              String
+  created_at            DateTime               @default(now()) @db.Timestamptz(6)
+  username              String                 @unique
+  batting_style         String?
+  bowling_style         String?
+  player_role           String?
+  batting_position      String?
+  jersey_number         Int?
+  bio                   String?
+  preferred_ground      String?
+  date_of_birth         DateTime?              @db.Date
+  avatar_url            String?
+  audit_logs            audit_logs[]
+  ball_overrides        ball_overrides[]
+  batting_career_stats  batting_career_stats?
+  bowling_career_stats  bowling_career_stats?
+  fielding_career_stats fielding_career_stats?
+  leaderboards          leaderboards[]
+  notifications         notifications[]
+  players               players[]
+  rankings              rankings[]
+  sessions              sessions[]
+
+  @@map("users")
+}
