@@ -31,9 +31,7 @@ export async function POST(
     .from('innings').select('*').eq('match_id', match.id).eq('status', 'active').single();
   if (!innings) return NextResponse.json({ error: 'No active innings' }, { status: 404 });
 
-  // Verify scorer (must be in batting team and have is_scorer = true, OR be session owner)
-  const isOwner = session.owner_id === sessionData.id;
-  
+  // Verify scorer (must be in batting team and have is_scorer = true)
   const { data: playerMe } = await supabase
     .from('players').select('*')
     .eq('session_id', session.id)
@@ -42,7 +40,7 @@ export async function POST(
 
   const isBattingTeamScorer = playerMe?.is_scorer && playerMe?.team_id === innings.team_id;
 
-  if (!isBattingTeamScorer && !isOwner) {
+  if (!isBattingTeamScorer) {
     return NextResponse.json({ error: 'Not authorised as batting team scorer' }, { status: 403 });
   }
 
@@ -121,7 +119,16 @@ export async function POST(
     total_wickets: currentWickets,
   }).eq('id', innings.id);
 
-  await Promise.all([partnershipOp, inningsUpdateOp]);
+  const tickerOp = supabase.from('score_tickers').upsert({
+    session_id: session.id,
+    data: {
+      new_balls: ballInserts,
+      innings_update: { id: innings.id, total_runs: currentRuns, total_balls: currentBalls, total_extras: currentExtras, total_wickets: currentWickets },
+      match_update: { id: match.id, status: match.status }
+    }
+  }, { onConflict: 'session_id' });
+
+  await Promise.all([partnershipOp, inningsUpdateOp, tickerOp]);
 
   const inningsOver = (currentBalls >= match.overs * 6) || (currentWickets >= 10);
 

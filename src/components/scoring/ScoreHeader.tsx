@@ -2,6 +2,7 @@
 import type { Innings, Match, Team } from '@/types/cricket';
 import { formatOvers } from '@/lib/cricket/engine';
 import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 
 interface ScoreHeaderProps {
   innings: Innings | null;
@@ -32,6 +33,21 @@ export default function ScoreHeader({
     : 0;
 
   const isLive = match.status !== 'result';
+
+  // Match elapsed timer
+  const [elapsed, setElapsed] = useState('');
+  useEffect(() => {
+    if (!match.created_at || !isLive) return;
+    const calc = () => {
+      const ms = Date.now() - new Date(match.created_at).getTime();
+      const mins = Math.floor(ms / 60000);
+      const hrs = Math.floor(mins / 60);
+      setElapsed(hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`);
+    };
+    calc();
+    const id = setInterval(calc, 60000);
+    return () => clearInterval(id);
+  }, [match.created_at, isLive]);
 
   // Abbreviate team names for the strip
   const abbr = (name: string) => {
@@ -73,7 +89,7 @@ export default function ScoreHeader({
                 <span className="ldot" />
                 <span style={{ fontSize: '10px', color: 'var(--live)', fontWeight: 800, letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>LIVE</span>
                 <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>
-                  · {innings?.innings_number === 2 ? '2nd Inn' : '1st Inn'} · {match.overs} ov
+                  · {innings?.innings_number === 2 ? '2nd Inn' : '1st Inn'} · {match.overs} ov{elapsed ? ` · ${elapsed}` : ''}
                 </span>
               </>
             ) : (
@@ -116,7 +132,7 @@ export default function ScoreHeader({
                 {battingAbbr} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>batting</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                <span style={{ fontSize: '46px', fontWeight: 900, lineHeight: 1, letterSpacing: '-1.5px', fontFamily: 'Barlow Condensed, sans-serif', color: 'var(--txt)' }}>
+                <span key={innings.total_runs} style={{ fontSize: '46px', fontWeight: 900, lineHeight: 1, letterSpacing: '-1.5px', fontFamily: 'Barlow Condensed, sans-serif', color: 'var(--txt)', animation: 'score-pop .3s ease-out', display: 'inline-block' }}>
                   {innings.total_runs}
                 </span>
                 <span style={{ fontSize: '22px', fontWeight: 700, color: 'var(--muted)', fontFamily: 'Barlow Condensed, sans-serif' }}>

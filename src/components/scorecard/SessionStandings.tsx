@@ -65,61 +65,82 @@ export default function SessionStandings({ code }: SessionStandingsProps) {
     load();
   }, [code, supabase]);
 
-  if (loading) return <div className="card"><p className="text-muted text-center">Loading…</p></div>;
+  if (loading) return (
+    <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+      <div style={{ fontSize: '32px', marginBottom: '8px' }}>📊</div>
+      Loading session data…
+    </div>
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {/* Standings table */}
-      <div className="card">
-        <div className="section-header">
-          <h3 className="section-title">Session Standings</h3>
-          <span className="status-pill status-live">LIVE</span>
+      <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '4px', height: '16px', background: 'var(--live)', borderRadius: '2px' }} />
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>Session Standings</span>
+          </div>
+          <span className="tag tag-live">LIVE</span>
         </div>
-        <table className="score-table">
-          <thead>
-            <tr>
-              <th>Team</th>
-              <th>P</th>
-              <th>W</th>
-              <th>L</th>
-              <th>Pts</th>
-              <th>NRR</th>
-            </tr>
-          </thead>
-          <tbody>
-            {standings.map((s, i) => (
-              <tr key={s.team.id} className={i === 0 ? 'highlight' : ''}>
-                <td>
-                  {i === 0 && <span style={{ color: 'var(--amber)', marginRight: 4 }}>🥇</span>}
-                  {i === 1 && <span style={{ color: 'var(--text-3)', marginRight: 4 }}>🥈</span>}
-                  {s.team.name}
-                </td>
-                <td>{s.played}</td>
-                <td>{s.won}</td>
-                <td>{s.lost}</td>
-                <td style={{ fontWeight: 700, color: 'var(--text-1)' }}>{s.points}</td>
-                <td style={{ color: parseFloat(s.nrr) >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                  {parseFloat(s.nrr) >= 0 ? '+' : ''}{s.nrr}
-                </td>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="score-table">
+            <thead>
+              <tr>
+                <th>Team</th>
+                <th>P</th>
+                <th>W</th>
+                <th>L</th>
+                <th>Pts</th>
+                <th>NRR</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {standings.map((s, i) => (
+                <tr key={s.team.id} className={i === 0 ? 'highlight' : ''}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {i === 0 && <span>🥇</span>}
+                      {i === 1 && <span>🥈</span>}
+                      <span style={{ fontWeight: 700 }}>{s.team.name}</span>
+                    </div>
+                  </td>
+                  <td>{s.played}</td>
+                  <td style={{ color: s.won > 0 ? 'var(--green)' : 'inherit', fontWeight: s.won > 0 ? 700 : 400 }}>{s.won}</td>
+                  <td style={{ color: s.lost > 0 ? '#f87171' : 'inherit', fontWeight: s.lost > 0 ? 700 : 400 }}>{s.lost}</td>
+                  <td style={{ fontWeight: 800, color: 'var(--txt)', fontFamily: 'Barlow Condensed, sans-serif', fontSize: '15px' }}>{s.points}</td>
+                  <td style={{ color: parseFloat(s.nrr) >= 0 ? 'var(--green)' : '#f87171', fontWeight: 700, fontFamily: 'Barlow Condensed, sans-serif' }}>
+                    {parseFloat(s.nrr) >= 0 ? '+' : ''}{s.nrr}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Match results */}
       {matches.length > 0 && (
-        <div className="card">
-          <h3 className="section-title" style={{ marginBottom: 'var(--sp-3)' }}>Match Results</h3>
-          {matches.map(m => (
-            <div key={m.id} style={{
-              padding: 'var(--sp-3)', borderBottom: '1px solid var(--glass-border)',
-              fontSize: '0.875rem', color: 'var(--text-2)',
-            }}>
-              <span style={{ color: 'var(--text-1)', fontWeight: 600 }}>Match {m.match_number}: </span>
-              {m.result ?? 'In progress'}
-            </div>
-          ))}
+        <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '4px', height: '16px', background: 'var(--green)', borderRadius: '2px' }} />
+            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>Match Results</span>
+          </div>
+          <div style={{ padding: '4px 0' }}>
+            {matches.map(m => (
+              <div key={m.id} style={{
+                padding: '12px 16px', borderBottom: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}>
+                <div>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--txt)', fontFamily: 'Barlow, sans-serif' }}>Match {m.match_number}</span>
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 600, maxWidth: '200px', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {m.result ?? 'In progress'}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

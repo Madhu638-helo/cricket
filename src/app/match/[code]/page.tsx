@@ -16,16 +16,19 @@ import BattingTable from '@/components/scorecard/BattingTable';
 import BowlingTable from '@/components/scorecard/BowlingTable';
 import SessionStandings from '@/components/scorecard/SessionStandings';
 import FallOfWickets from '@/components/scoring/FallOfWickets';
+import ManhattanChart from '@/components/scoring/ManhattanChart';
 import SpectatorView from '@/components/scoring/SpectatorView';
 import type { WicketType, ExtraType, Team } from '@/types/cricket';
 import { buildOverHistory, calcBowlerStats, calcBatsmanStats, ballToSummary } from '@/lib/cricket/engine';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useToast } from '@/components/ui/Toast';
 
 interface PageProps { params: Promise<{ code: string }> }
 
 export default function MatchPage({ params }: PageProps) {
   const { code } = use(params);
   const router = useRouter();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('score');
   const [playerName, setPlayerName] = useState('');
   const [isScorer, setIsScorer] = useState<boolean | null>(null); // null = loading
@@ -46,7 +49,7 @@ export default function MatchPage({ params }: PageProps) {
   const [submittedTotal, setSubmittedTotal] = useState<{ runs: number; balls: number; wickets: number } | null>(null);
   const [innings1Target, setInnings1Target] = useState<number>(0);
 
-  const { session, match, innings, balls, players, loading, error } = useRealtimeMatch(code);
+  const { session, match, innings, balls, players, teams: teamsFromDb, loading, error } = useRealtimeMatch(code);
 
   // Auto-close: if match started but still 'active' >30min past expected end, call close action
   useEffect(() => {
@@ -76,23 +79,66 @@ export default function MatchPage({ params }: PageProps) {
         
         const me = players.find(p => p.user_id === user.id);
         const activeInnings = innings.find(i => i.status === 'active');
+        // Only the batting team's designated scorer can log scores
+        // Owner is NOT a scorer — they can only admin (restart/pause/cancel)
         const isBattingTeamScorer = !!(me?.is_scorer && activeInnings && me?.team_id === activeInnings.team_id);
-        setIsScorer(isBattingTeamScorer || (user.id === session?.owner_id));
-        if (players.length === 0 && user.id !== session?.owner_id) {
-          setIsScorer(false);
-        }
+        setIsScorer(isBattingTeamScorer);
       })
       .catch(() => {});
   }, [session, players, innings]);
 
-  // Sync field state from last ball
+  // Reset local state when match changes (e.g., "Play Again" creates a new match)
+  const prevMatchIdRef = React.useRef(match?.id);
   useEffect(() => {
-    if (!balls.length) return;
-    const last = balls[balls.length - 1];
-    if (!strikerId) setStrikerId(last.batsman_id);
-    if (!nonStrikerId) setNonStrikerId(last.non_striker_id ?? 'single');
-    if (!bowlerId) setBowlerId(last.bowler_id);
+    if (match?.id && prevMatchIdRef.current && match.id !== prevMatchIdRef.current) {
+      setStrikerId('');
+      setNonStrikerId('');
+      setBowlerId('');
+      setPendingBalls([]);
+      setSubmittedTotal(null);
+      setActiveTab('score');
+      setInnings1Target(0);
+      setShowInningsBreak(false);
+      setShowWicket(false);
+      setShowBowler(false);
+      setShowBatsman(false);
+      setShowNonStriker(false);
+    }
+    prevMatchIdRef.current = match?.id;
+  }, [match?.id]);
+
+  // Sync field state from last ball OR from partnership (for fresh innings)
+  useEffect(() => {
+    if (balls.length > 0) {
+      const last = balls[balls.length - 1];
+      if (!strikerId) setStrikerId(last.batsman_id);
+      if (!nonStrikerId) setNonStrikerId(last.non_striker_id ?? 'single');
+      if (!bowlerId) setBowlerId(last.bowler_id);
+    }
   }, [balls]);
+
+  // Pre-fill from partnership data when innings just started (no balls yet)
+  useEffect(() => {
+    if (strikerId || nonStrikerId) return; // already set
+    const activeInn = innings.find(i => i.status === 'active');
+    if (!activeInn || !session) return;
+    // Fetch partnership to get opener IDs
+    const supabaseClient = (async () => {
+      const { createClient } = await import('@/lib/supabase/client');
+      const sb = createClient();
+      const { data: partnership } = await sb.from('partnerships')
+        .select('batsman1_id,batsman2_id')
+        .eq('innings_id', activeInn.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+      if (partnership) {
+        if (partnership.batsman1_id && !strikerId) setStrikerId(partnership.batsman1_id);
+        if (partnership.batsman2_id && !nonStrikerId) setNonStrikerId(partnership.batsman2_id);
+        else if (!partnership.batsman2_id && !nonStrikerId) setNonStrikerId('single');
+      }
+    })();
+  }, [innings, session]);
 
   const currentInnings = innings.find(i => i.status === 'active') ?? null;
   const prevInnings = innings.find(i => i.status === 'complete') ?? null;
@@ -176,12 +222,12 @@ export default function MatchPage({ params }: PageProps) {
           setShowBowler(true);
         }
       } else {
-        alert(result.error);
+        showToast(result.error, 'error');
         setSubmittedTotal(null);
         setPendingBalls([]); // Revert on error
       }
     } catch (e) {
-      alert('Failed to submit over');
+      showToast('Failed to submit over', 'error');
       setSubmittedTotal(null);
       setPendingBalls([]);
     }
@@ -232,6 +278,7 @@ export default function MatchPage({ params }: PageProps) {
           nextStriker = nextNonStriker;
           nextNonStriker = temp;
        }
+       showToast(allOut ? '🏏 All out! Submitting...' : '✅ Over complete — submitting...', 'info', 2000);
        submitOver(newPending);
     }
     
@@ -251,8 +298,33 @@ export default function MatchPage({ params }: PageProps) {
     setShowWicket(true);
   };
 
-  const handleWicketConfirm = async (wicketType: WicketType, fielderId?: string) => {
-    processLocalBall({ runs_off_bat: 0, extra_type: null, extras: 0, is_wicket: true, wicket_type: wicketType, fielder_id: fielderId });
+  const handleWicketConfirm = async (wicketType: WicketType, fielderId?: string, runsCompleted?: number) => {
+    processLocalBall({ runs_off_bat: runsCompleted ?? 0, extra_type: null, extras: 0, is_wicket: true, wicket_type: wicketType, fielder_id: fielderId });
+  };
+
+  const undoLastBall = () => {
+    if (pendingBalls.length === 0) return; // nothing to undo — already submitted
+    const popped = pendingBalls[pendingBalls.length - 1];
+    const newPending = pendingBalls.slice(0, -1);
+    setPendingBalls(newPending);
+    // Reverse strike rotation
+    const wasExtra = popped.extra_type === 'wide' || popped.extra_type === 'noball';
+    const didRotate = !wasExtra && (popped.runs_off_bat ?? 0) % 2 === 1 && nonStrikerId !== 'single';
+    if (didRotate) {
+      setStrikerId(nonStrikerId);
+      setNonStrikerId(strikerId);
+    }
+    // If wicket was undone, restore striker
+    if (popped.is_wicket) {
+      setStrikerId(popped.batsman_id);
+    }
+  };
+
+  const swapStrike = () => {
+    if (nonStrikerId === 'single') return;
+    const temp = strikerId;
+    setStrikerId(nonStrikerId);
+    setNonStrikerId(temp);
   };
 
   if (loading) return (
@@ -304,8 +376,8 @@ export default function MatchPage({ params }: PageProps) {
     );
   }
 
-  const team1Obj = match ? { id: match.team1_id!, name: team1[0]?.name ?? 'Team A', session_id: '', created_at: '' } as Team : null;
-  const team2Obj = match ? { id: match.team2_id!, name: team2[0]?.name ?? 'Team B', session_id: '', created_at: '' } as Team : null;
+  const team1Obj = match ? teamsFromDb.find(t => t.id === match.team1_id) ?? { id: match.team1_id!, name: 'Team A', session_id: '', created_at: '' } as Team : null;
+  const team2Obj = match ? teamsFromDb.find(t => t.id === match.team2_id) ?? { id: match.team2_id!, name: 'Team B', session_id: '', created_at: '' } as Team : null;
   // Show header innings = active OR last completed (so header is never blank)
   const headerInnings = liveInnings ?? prevInnings ?? null;
   const battingTeamObj = (headerInnings ?? currentInnings)?.team_id === match?.team1_id ? team1Obj : team2Obj;
@@ -329,6 +401,8 @@ export default function MatchPage({ params }: PageProps) {
           players={players}
           team1Obj={team1Obj}
           team2Obj={team2Obj}
+          isOwner={isOwner}
+          code={code}
           onBack={() => {
             if (typeof window !== 'undefined') window.history.back();
           }}
@@ -503,13 +577,21 @@ export default function MatchPage({ params }: PageProps) {
                     onScore={handleScore}
                     onWicket={handleWicket}
                     onRetiredHurt={() => setShowBatsman(true)}
+                    onUndo={undoLastBall}
+                    onSwapStrike={swapStrike}
+                    onEndOverEarly={pendingBalls.length > 0 ? () => {
+                      showToast('⏩ Ending over early...', 'info', 2000);
+                      submitOver(pendingBalls);
+                    } : undefined}
                     isFreehitNext={isFreehitNext}
-                    disabled={false}
+                    canUndo={pendingBalls.length > 0}
+                    disabled={showBatsman || showBowler || showWicket || showNonStriker}
                   />
                   <FallOfWickets balls={inningsBalls} />
                 </>
               )}
 
+              {/* Worm */}
               {/* Worm */}
               {overHistory.length > 0 && (
                 <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px' }}>
@@ -522,18 +604,34 @@ export default function MatchPage({ params }: PageProps) {
                 </div>
               )}
 
-              {/* Recent overs */}
-              {overHistory.slice(-3).reverse().map(ov => (
-                <div key={ov.overNumber} style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Over {ov.overNumber}</span>
-                    <span style={{ color: ov.wickets > 0 ? '#f87171' : 'var(--muted)', fontSize: '12px', fontWeight: 700, fontFamily: 'Barlow, sans-serif' }}>
-                      {ov.runs} runs {ov.wickets > 0 ? `· ${ov.wickets}W` : ''} {ov.isMaiden ? '· M' : ''}
-                    </span>
+              {/* Manhattan */}
+              <ManhattanChart
+                overHistory={overHistory}
+                totalOvers={match.overs}
+                teamName={battingTeamObj?.name}
+              />
+
+              {/* All overs — scrollable history */}
+              {overHistory.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: '8px', fontFamily: 'Barlow, sans-serif' }}>
+                    Over by Over ({overHistory.length} overs)
                   </div>
-                  <OverDots balls={ov.balls} overNumber={ov.overNumber} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {[...overHistory].reverse().map(ov => (
+                      <div key={ov.overNumber} style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Over {ov.overNumber}</span>
+                          <span style={{ color: ov.wickets > 0 ? '#f87171' : 'var(--muted)', fontSize: '12px', fontWeight: 700, fontFamily: 'Barlow, sans-serif' }}>
+                            {ov.runs} runs {ov.wickets > 0 ? `· ${ov.wickets}W` : ''} {ov.isMaiden ? '· M' : ''}
+                          </span>
+                        </div>
+                        <OverDots balls={ov.balls} overNumber={ov.overNumber} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
 
@@ -541,34 +639,47 @@ export default function MatchPage({ params }: PageProps) {
           {activeTab === 'stats' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {!currentInnings && match.status !== 'result' ? (
-                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', textAlign: 'center', padding: '32px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>📊</div>
                   Stats appear once match begins
                 </div>
               ) : (
                 <>
-                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{ width: '3px', height: '14px', background: 'var(--green)', borderRadius: '2px' }} />
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '4px', height: '16px', background: 'var(--green)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
+                        {battingTeamObj?.name ?? 'Batting'} — Batting
+                      </span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <BattingTable players={battingPlayers} balls={inningsBalls} strikerId={strikerId} />
                     </div>
                   </div>
-                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{ width: '3px', height: '14px', background: 'var(--blue)', borderRadius: '2px' }} />
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '4px', height: '16px', background: 'var(--blue)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
+                        {bowlingTeamObj?.name ?? 'Bowling'} — Bowling
+                      </span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <BowlingTable players={bowlingPlayers} balls={inningsBalls} />
                     </div>
                   </div>
+                  <FallOfWickets balls={inningsBalls} />
+                  <WormGraph
+                    team1Overs={overHistory}
+                    team2Overs={prevInnings ? buildOverHistory(balls.filter(b => b.innings_id === prevInnings.id)) : undefined}
+                    totalOvers={match.overs}
+                    team1Name={battingTeamObj?.name}
+                    team2Name={bowlingTeamObj?.name}
+                  />
                   {prevInnings && (
-                    <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: '3px', height: '14px', background: 'var(--muted)', borderRadius: '2px' }} />
-                        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>1st Innings Batting</span>
+                    <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '4px', height: '16px', background: 'var(--muted)', borderRadius: '2px' }} />
+                        <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>1st Innings — Batting</span>
                       </div>
                       <div style={{ overflowX: 'auto' }}>
                         <BattingTable players={players.filter(p => p.team_id === prevInnings.team_id)} balls={balls.filter(b => b.innings_id === prevInnings.id)} strikerId="" />
@@ -584,24 +695,25 @@ export default function MatchPage({ params }: PageProps) {
           {activeTab === 'scorecard' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {(!currentInnings && match.status !== 'result') ? (
-                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', textAlign: 'center', padding: '32px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
                   Scorecard appears once match begins
                 </div>
               ) : (
                 <>
-                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{ width: '3px', height: '14px', background: 'var(--green)', borderRadius: '2px' }} />
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '4px', height: '16px', background: 'var(--green)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <BattingTable players={battingPlayers} balls={inningsBalls} strikerId={strikerId} />
                     </div>
                   </div>
-                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{ width: '3px', height: '14px', background: 'var(--blue)', borderRadius: '2px' }} />
-                      <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '4px', height: '16px', background: 'var(--blue)', borderRadius: '2px' }} />
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <BowlingTable players={bowlingPlayers} balls={inningsBalls} />
@@ -649,6 +761,10 @@ export default function MatchPage({ params }: PageProps) {
         onConfirm={handleWicketConfirm}
         fieldingTeamPlayers={fieldingTeamPlayers}
         runsOffBat={0}
+        isFreehit={isFreehitNext}
+        strikerId={strikerId}
+        nonStrikerId={nonStrikerId}
+        battingPlayers={battingPlayers}
       />
       <PlayerSelectSheet
         open={showBatsman}
@@ -673,6 +789,8 @@ export default function MatchPage({ params }: PageProps) {
         players={bowlingPlayers}
         title="Select Bowler"
         excludeIds={[]}
+        featuredId={bowlerId}
+        featuredLabel="PREV"
       />
 
       {showInningsBreak && prevInnings && team1Obj && team2Obj && (

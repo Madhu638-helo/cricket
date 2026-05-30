@@ -112,13 +112,40 @@ export async function GET() {
           expectedEndAt,
         });
       } else if (s.status === 'lobby') {
+        // Format date and time from session
+        let dateStr = '';
+        if (s.match_date) {
+          const d = new Date(s.match_date);
+          const today = new Date();
+          const todayStr = today.toISOString().slice(0, 10);
+          const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().slice(0, 10);
+          const matchStr = d.toISOString().slice(0, 10);
+          if (matchStr === todayStr) dateStr = 'Today';
+          else if (matchStr === tomorrowStr) dateStr = 'Tomorrow';
+          else dateStr = d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
+        }
+        let timeStr = '';
+        if (s.match_time) {
+          try {
+            const [h, m] = s.match_time.toISOString().slice(11, 16).split(':');
+            const hr = parseInt(h);
+            timeStr = `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? 'PM' : 'AM'}`;
+          } catch {
+            timeStr = '';
+          }
+        }
+
+        const overs = match?.overs ?? 20;
+        let formatLabel = `${overs} Ov`;
+        if (overs === 20) formatLabel = 'T20';
+
         upcomingMatches.push({
           code: s.code,
           matchName,
-          date: 'Today', // In a real app we'd format s.created_at
-          time: new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          ground: 'Home Ground',
-          format: 'T20',
+          date: dateStr || null,
+          time: timeStr || null,
+          ground: s.ground || null,
+          format: formatLabel,
           aside: `${Math.ceil(s.players.length / 2)}v${Math.ceil(s.players.length / 2)}`,
           playerCount: s.players.length,
           players: s.players.slice(0, 3).map(p => ({ id: p.id, name: p.name, team_id: p.team_id }))

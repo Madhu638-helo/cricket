@@ -104,6 +104,25 @@ export default function HomePage() {
           </button>
         </div>
 
+        {/* Welcome hero for new users */}
+        {liveMatches.length === 0 && upcomingMatches.length === 0 && stats.runs === 0 && stats.wickets === 0 && (
+          <div style={{ background: 'linear-gradient(135deg, rgba(249,115,22,.08), rgba(167,139,250,.06))', border: '1px solid rgba(249,115,22,.15)', borderRadius: '14px', padding: '24px 18px', textAlign: 'center' }}>
+            <div style={{ fontSize: '42px', marginBottom: '8px' }}>🏏</div>
+            <div style={{ fontSize: '18px', fontWeight: 800, fontFamily: 'Barlow Condensed, sans-serif', marginBottom: '4px' }}>Ready to play?</div>
+            <div style={{ fontSize: '13px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', lineHeight: 1.4, marginBottom: '16px' }}>
+              Create a match to start scoring, or join one with a code.
+            </div>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button onClick={() => router.push('/create')} style={{ background: 'var(--live)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '10px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}>
+                + Create Match
+              </button>
+              <button onClick={() => router.push('/join')} style={{ background: 'var(--s2)', color: 'var(--txt)', border: '1px solid var(--border)', padding: '10px 20px', borderRadius: '10px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}>
+                Join →
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Live matches */}
         <section>
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
@@ -201,11 +220,11 @@ export default function HomePage() {
                     <span style={{ background: 'var(--blue-lo)', color: 'var(--blue)', fontSize: '10px', fontWeight: 800, padding: '3px 8px', borderRadius: '4px', letterSpacing: '.4px', fontFamily: 'Barlow, sans-serif', textTransform: 'uppercase', border: '1px solid rgba(96,165,250,.2)' }}>
                       Upcoming
                     </span>
-                    <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>{m.date} · {m.time}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>{[m.date, m.time].filter(Boolean).join(' · ') || ''}</span>
                   </div>
                   <div style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', marginBottom: '2px' }}>{m.matchName}</div>
                   <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', marginBottom: '10px' }}>
-                    {m.format} · {m.aside}
+                    {[m.format, m.aside, m.ground].filter(Boolean).join(' · ')}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

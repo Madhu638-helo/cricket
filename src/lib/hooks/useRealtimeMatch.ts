@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Ball, Innings, Match, Player } from '@/types/cricket';
+import type { Ball, Innings, Match, Player, Team } from '@/types/cricket';
 
 export interface RealtimeMatchData {
   session: any | null;
@@ -9,6 +9,7 @@ export interface RealtimeMatchData {
   innings: Innings[];
   balls: Ball[];
   players: Player[];
+  teams: Team[];
   loading: boolean;
   error: string | null;
 }
@@ -16,7 +17,7 @@ export interface RealtimeMatchData {
 export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
   const supabase = createClient();
   const [data, setData] = useState<RealtimeMatchData>({
-    session: null, match: null, innings: [], balls: [], players: [], loading: true, error: null,
+    session: null, match: null, innings: [], balls: [], players: [], teams: [], loading: true, error: null,
   });
   const sessionIdRef = useRef<string>('');
   const matchIdRef = useRef<string>('');
@@ -37,18 +38,21 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
 
     const { data: innings } = await supabase.from('innings').select('*').eq('match_id', match.id);
     const inningsIds = (innings ?? []).map((i: Innings) => i.id);
-    const { data: balls } = inningsIds.length
-      ? await supabase.from('balls').select('*').in('innings_id', inningsIds).order('created_at', { ascending: true })
-      : { data: [] };
-    const { data: players } = await supabase.from('players').select('*').eq('session_id', session.id);
+    const [{ data: balls }, { data: players }, { data: teams }] = await Promise.all([
+      inningsIds.length
+        ? supabase.from('balls').select('*').in('innings_id', inningsIds).order('created_at', { ascending: true })
+        : { data: [] as Ball[] },
+      supabase.from('players').select('*').eq('session_id', session.id),
+      supabase.from('teams').select('*').eq('session_id', session.id),
+    ]);
 
-    setData({ session, match, innings: innings ?? [], balls: balls ?? [], players: players ?? [], loading: false, error: null });
+    setData({ session, match, innings: innings ?? [], balls: balls ?? [], players: players ?? [], teams: teams ?? [], loading: false, error: null });
   }, [matchCode, supabase]);
 
   useEffect(() => {
     fetchInitial();
 
-    const channel = supabase.channel(`match:${matchCode}`)
+    const channel = supabase.channel(`match:${matchCode}:${Date.now()}`)
       // Match status changes (pause, result, etc.) — refetch match row only
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
         (payload: any) => {
@@ -79,23 +83,50 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
           if (payload.new?.match_id !== matchIdRef.current && matchIdRef.current) return;
           fetchInitial();
         })
-      // Balls INSERT — append directly (no refetch)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'balls' },
-        (payload: any) => {
-          setData(prev => {
-            const inningsIds = prev.innings.map(i => i.id);
-            if (!inningsIds.includes(payload.new?.innings_id)) return prev;
-            // Deduplicate — scorer's own pending balls come from local state
-            const already = prev.balls.some(b => b.id === payload.new?.id);
-            if (already) return prev;
-            return { ...prev, balls: [...prev.balls, payload.new as Ball] };
-          });
-        })
-      // Players change
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' },
+      // Optimized score ticker listener for bulk ball updates
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'score_tickers' },
         (payload: any) => {
           if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
-          fetchInitial();
+          const { new_balls, innings_update, reload_balls } = payload.new.data || {};
+          
+          if (reload_balls) {
+            fetchInitial();
+            return;
+          }
+
+          setData(prev => {
+            let nextState = { ...prev };
+            
+            // Handle bulk balls
+            if (new_balls && Array.isArray(new_balls)) {
+              const inningsIds = prev.innings.map(i => i.id);
+              const validBalls = new_balls.filter((b: any) => inningsIds.includes(b.innings_id));
+              const existingIds = new Set(prev.balls.map(b => b.id));
+              const uniqueNewBalls = validBalls.filter((b: any) => !existingIds.has(b.id));
+              if (uniqueNewBalls.length > 0) {
+                nextState.balls = [...prev.balls, ...uniqueNewBalls] as Ball[];
+              }
+            }
+
+            // Sync innings instantly
+            if (innings_update && innings_update.id) {
+              nextState.innings = nextState.innings.map(i => 
+                i.id === innings_update.id ? { ...i, ...innings_update } as Innings : i
+              );
+            }
+
+            return nextState;
+          });
+        })
+      // Players change — only refetch players + teams, NOT full initial load
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' },
+        async (payload: any) => {
+          if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
+          const [{ data: players }, { data: teams }] = await Promise.all([
+            supabase.from('players').select('*').eq('session_id', sessionIdRef.current),
+            supabase.from('teams').select('*').eq('session_id', sessionIdRef.current),
+          ]);
+          setData(prev => ({ ...prev, players: players ?? prev.players, teams: teams ?? prev.teams }));
         })
       .subscribe();
 

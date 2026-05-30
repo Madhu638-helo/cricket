@@ -163,6 +163,7 @@ model matches {
   created_at                          DateTime  @default(now()) @db.Timestamptz(6)
   ground                              String?
   is_paused                           Boolean   @default(false)
+  settings                            Json?
   innings                             innings[]
   teams_matches_batting_firstToteams  teams?    @relation("matches_batting_firstToteams", fields: [batting_first], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sessions                            sessions  @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -209,6 +210,8 @@ model players {
   is_joker                                       Boolean        @default(false)
   user_id                                        String?        @db.Uuid
   is_captain                                     Boolean        @default(false)
+  role                                           String         @default("PLAYER")
+  player_status                                  String         @default("PLAYING")
   approval_status                                String         @default("approved")
   balls_balls_batsman_idToplayers                balls[]        @relation("balls_batsman_idToplayers")
   balls_balls_bowler_idToplayers                 balls[]        @relation("balls_bowler_idToplayers")
@@ -248,8 +251,17 @@ model sessions {
   match_time DateTime? @db.Time(6)
   matches    matches[]
   players    players[]
+  score_tickers score_tickers[]
   user       User?     @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
   teams      teams[]
+}
+
+model score_tickers {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  session_id String   @unique @db.Uuid
+  data       Json
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  sessions   sessions @relation(fields: [session_id], references: [id], onDelete: Cascade)
 }
 
 model teams {

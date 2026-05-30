@@ -85,7 +85,7 @@ export default function WormGraph({ team1Overs, team2Overs, totalOvers, team1Nam
             />
             <text
               x={PAD.left - 4} y={toSvgY(val) + PAD.top + 4}
-              textAnchor="end" fontSize="8" fill="var(--text-3)"
+              textAnchor="end" fontSize="8" fill="var(--dim)"
             >{val}</text>
           </g>
         ))}
@@ -96,7 +96,7 @@ export default function WormGraph({ team1Overs, team2Overs, totalOvers, team1Nam
             key={ov}
             x={(ov / totalOvers) * innerW + PAD.left}
             y={H - 4}
-            textAnchor="middle" fontSize="8" fill="var(--text-3)"
+            textAnchor="middle" fontSize="8" fill="var(--dim)"
           >{ov}</text>
         ))}
 
@@ -138,11 +138,11 @@ export default function WormGraph({ team1Overs, team2Overs, totalOvers, team1Nam
 
         {/* Legend */}
         <rect x={PAD.left} y={PAD.top} width="10" height="2" fill="var(--green)" rx="1" />
-        <text x={PAD.left + 14} y={PAD.top + 5} fontSize="8" fill="var(--text-2)">{team1Name}</text>
+        <text x={PAD.left + 14} y={PAD.top + 5} fontSize="8" fill="var(--muted)">{team1Name}</text>
         {t2pts.length > 1 && (
           <>
             <rect x={PAD.left + 80} y={PAD.top} width="10" height="2" fill="var(--blue)" rx="1" />
-            <text x={PAD.left + 94} y={PAD.top + 5} fontSize="8" fill="var(--text-2)">{team2Name}</text>
+            <text x={PAD.left + 94} y={PAD.top + 5} fontSize="8" fill="var(--muted)">{team2Name}</text>
           </>
         )}
       </svg>

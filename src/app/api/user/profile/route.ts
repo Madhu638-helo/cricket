@@ -20,7 +20,7 @@ export async function GET() {
     supabase.from('batting_career_stats').select('*').eq('user_id', session.id).single(),
     supabase.from('bowling_career_stats').select('*').eq('user_id', session.id).single(),
     supabase.from('fielding_career_stats').select('*').eq('user_id', session.id).single(),
-    supabase.from('players').select('session_id, joined_at, sessions(id,name,code,created_at,status)').eq('user_id', session.id).order('joined_at', { ascending: false }).limit(10),
+    supabase.from('players').select('session_id, joined_at, sessions(id,name,code,created_at,status,match_date,match_time)').eq('user_id', session.id).order('joined_at', { ascending: false }).limit(10),
   ]);
 
   return NextResponse.json({

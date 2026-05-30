@@ -7,7 +7,7 @@ export type MatchStatus = 'setup' | 'toss' | 'innings_1' | 'innings_break' | 'in
 export type InningsStatus = 'active' | 'complete';
 export type TossDecision = 'bat' | 'bowl';
 export type ExtraType = 'wide' | 'noball' | 'bye' | 'legbye' | 'penalty';
-export type WicketType = 'caught' | 'bowled' | 'lbw' | 'runout' | 'stumped' | 'hitwicket' | 'retiredhurt';
+export type WicketType = 'caught' | 'bowled' | 'lbw' | 'runout' | 'stumped' | 'hitwicket' | 'retiredhurt' | 'retiredout';
 
 export interface Session {
   id: string;

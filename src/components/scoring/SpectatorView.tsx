@@ -6,6 +6,10 @@ import BattingTable from '@/components/scorecard/BattingTable';
 import BowlingTable from '@/components/scorecard/BowlingTable';
 import OverDots from '@/components/scoring/OverDots';
 import ScoreHeader from '@/components/scoring/ScoreHeader';
+import FallOfWickets from '@/components/scoring/FallOfWickets';
+import ManhattanChart from '@/components/scoring/ManhattanChart';
+import WormGraph from '@/components/scoring/WormGraph';
+import { useRouter } from 'next/navigation';
 
 interface SpectatorViewProps {
   match: Match;
@@ -14,6 +18,8 @@ interface SpectatorViewProps {
   players: Player[];
   team1Obj: Team | null;
   team2Obj: Team | null;
+  isOwner?: boolean;
+  code?: string;
   onBack: () => void;
 }
 
@@ -29,22 +35,52 @@ function ballLabel(b: Ball): { text: string; color: string; bg: string } {
   return { text: String(b.runs_off_bat), color: '#f0f0f0', bg: '#1e3a2f' };
 }
 
+// Rich commentary templates with variety
+const SIX_TEMPLATES = [
+  (bat: string) => `🚀 SIX! ${bat} launches it over the boundary!`,
+  (bat: string) => `💥 MAXIMUM! ${bat} sends it into orbit!`,
+  (bat: string) => `🔥 SIX! ${bat} goes big — that's out of the park!`,
+  (bat: string) => `⚡ HUGE SIX! ${bat} muscles it over the ropes!`,
+  (bat: string) => `🎆 What a hit! ${bat} clears the fence with ease!`,
+];
+const FOUR_TEMPLATES = [
+  (bat: string) => `🏏 FOUR! ${bat} finds the boundary beautifully!`,
+  (bat: string) => `💫 Boundary! ${bat} times it to perfection!`,
+  (bat: string) => `🎯 FOUR! Superb placement by ${bat}!`,
+  (bat: string) => `⚡ Racing away! ${bat} pierces the field for four!`,
+];
+const WICKET_TEMPLATES = [
+  (bat: string, bowl: string, wt: string) => `🔴 OUT! ${bat} is ${wt}! ${bowl} strikes!`,
+  (bat: string, bowl: string, wt: string) => `💀 WICKET! ${bat} departs — ${wt}. ${bowl} celebrates!`,
+  (bat: string, bowl: string, wt: string) => `🎯 Gone! ${bat} walks back — ${wt} by ${bowl}!`,
+];
+const DOT_TEMPLATES = [
+  (bat: string, bowl: string) => `Dot ball. ${bowl} keeps it tight.`,
+  (bat: string, bowl: string) => `No run. Good delivery by ${bowl}.`,
+  (bat: string, bowl: string) => `Dot! ${bowl} on target, ${bat} defends.`,
+];
+
 function ballEvent(b: Ball, batsman: Player | undefined, bowler: Player | undefined): string {
   const bat = batsman?.name?.split(' ')[0] ?? 'Batsman';
   const bowl = bowler?.name?.split(' ')[0] ?? 'Bowler';
   const total = (b.runs_off_bat ?? 0) + (b.extras ?? 0);
+  // Use ball_number as seed for variety
+  const seed = (b.ball_number ?? 0) + (b.over_number ?? 0);
   if (b.is_wicket) {
     const wt = b.wicket_type ?? 'out';
-    return `${bat} is ${wt}! ${bowl} strikes`;
+    return WICKET_TEMPLATES[seed % WICKET_TEMPLATES.length](bat, bowl, wt);
   }
-  if (b.extra_type === 'wide') return `Wide ball — ${total > 1 ? `${total - 1} extra runs` : 'no run'}`;
-  if (b.extra_type === 'noball') return `No ball! ${b.runs_off_bat ? `${b.runs_off_bat} off the bat` : 'dot off bat'}`;
-  if (b.extra_type === 'bye') return `${total} bye${total > 1 ? 's' : ''}`;
-  if (b.extra_type === 'legbye') return `${total} leg bye${total > 1 ? 's' : ''}`;
-  if (b.runs_off_bat === 6) return `SIX! ${bat} sends it over the ropes`;
-  if (b.runs_off_bat === 4) return `FOUR! ${bat} finds the boundary`;
-  if (b.runs_off_bat === 0) return `Dot ball. ${bowl} on target`;
-  return `${bat} picks up ${b.runs_off_bat} run${b.runs_off_bat > 1 ? 's' : ''}`;
+  if (b.extra_type === 'wide') return `Wide ball${total > 1 ? ` — ${total} runs added` : ''}. Pressure on ${bowl}.`;
+  if (b.extra_type === 'noball') return `No ball! ${b.runs_off_bat ? `${bat} smacks ${b.runs_off_bat} off it` : `${bat} blocks it`}. Free hit next!`;
+  if (b.extra_type === 'bye') return `${total} bye${total > 1 ? 's' : ''} — keeper misses, runs taken.`;
+  if (b.extra_type === 'legbye') return `${total} leg bye${total > 1 ? 's' : ''} — off the pads.`;
+  if (b.runs_off_bat === 6) return SIX_TEMPLATES[seed % SIX_TEMPLATES.length](bat);
+  if (b.runs_off_bat === 4) return FOUR_TEMPLATES[seed % FOUR_TEMPLATES.length](bat);
+  if (b.runs_off_bat === 0) return DOT_TEMPLATES[seed % DOT_TEMPLATES.length](bat, bowl);
+  if (b.runs_off_bat === 1) return `${bat} nudges it for a quick single.`;
+  if (b.runs_off_bat === 2) return `${bat} picks up a comfortable two runs.`;
+  if (b.runs_off_bat === 3) return `${bat} runs hard for three! Great running.`;
+  return `${bat} picks up ${b.runs_off_bat} run${b.runs_off_bat > 1 ? 's' : ''}.`;
 }
 
 function LastBallHero({ ball, players }: { ball: Ball; players: Player[] }) {
@@ -57,17 +93,18 @@ function LastBallHero({ ball, players }: { ball: Ball; players: Player[] }) {
     <div style={{
       background: lbl.bg === '#ef4444' ? 'rgba(239,68,68,.1)' : lbl.bg === '#7c3aed' ? 'rgba(124,58,237,.1)' : lbl.bg === '#fbbf24' ? 'rgba(251,191,36,.08)' : 'var(--s1)',
       border: `1px solid ${lbl.bg === '#ef4444' ? 'rgba(239,68,68,.3)' : lbl.bg === '#7c3aed' ? 'rgba(124,58,237,.3)' : lbl.bg === '#fbbf24' ? 'rgba(251,191,36,.2)' : 'var(--border)'}`,
-      borderRadius: '12px', padding: '14px 16px',
+      borderRadius: '14px', padding: '14px 16px',
       display: 'flex', alignItems: 'center', gap: '14px',
     }}>
       <div style={{
-        width: '52px', height: '52px', borderRadius: '12px', background: lbl.bg,
+        width: '52px', height: '52px', borderRadius: '14px', background: lbl.bg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: lbl.text.length > 1 ? '18px' : '28px', fontWeight: 900,
         fontFamily: 'Barlow Condensed, sans-serif', color: lbl.color, flexShrink: 0,
+        boxShadow: lbl.bg === '#ef4444' ? '0 0 20px rgba(239,68,68,.3)' : lbl.bg === '#7c3aed' ? '0 0 20px rgba(124,58,237,.3)' : lbl.bg === '#fbbf24' ? '0 0 20px rgba(251,191,36,.2)' : 'none',
       }}>{lbl.text}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '13px', fontWeight: 700, fontFamily: 'Barlow, sans-serif', marginBottom: '2px' }}>{event}</div>
+        <div style={{ fontSize: '13px', fontWeight: 700, fontFamily: 'Barlow, sans-serif', marginBottom: '2px', lineHeight: 1.3 }}>{event}</div>
         <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>
           Over {ball.over_number + 1}.{ball.ball_number} · {batsman?.name ?? ''} vs {bowler?.name ?? ''}
         </div>
@@ -77,11 +114,12 @@ function LastBallHero({ ball, players }: { ball: Ball; players: Player[] }) {
 }
 
 export default function SpectatorView({
-  match, inningsList, balls, players, team1Obj, team2Obj, onBack
+  match, inningsList, balls, players, team1Obj, team2Obj, isOwner, code, onBack
 }: SpectatorViewProps) {
+  const router = useRouter();
   const currentInnings = inningsList.find(i => i.status === 'active') ?? inningsList[inningsList.length - 1] ?? null;
   const [activeInningsId, setActiveInningsId] = useState<string>(currentInnings?.id || '');
-  const [activeTab, setActiveTab] = useState<'live' | 'scorecard'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'stats' | 'scorecard'>('live');
   const feedRef = useRef<HTMLDivElement>(null);
 
   // Keep activeInningsId in sync when new innings starts
@@ -131,37 +169,34 @@ export default function SpectatorView({
   const rrr = target && ballsLeft > 0
     ? Math.round(((target - displayInnings.total_runs) / (ballsLeft / 6)) * 100) / 100
     : null;
-  const progressPercent = Math.min(100, (displayInnings.total_balls / (match.overs * 6)) * 100);
 
   const battingPlayers = players.filter(p => p.team_id === displayInnings.team_id || p.is_joker);
   const bowlingPlayers = players.filter(p => p.team_id === bowlingTeamObj.id || p.is_joker);
   const overHistory = buildOverHistory(displayBalls);
 
-  // Striker = last ball's batsman
   const lastBall = displayBalls.length > 0 ? displayBalls[displayBalls.length - 1] : null;
   const strikerId = isCurrentInnings && lastBall ? lastBall.batsman_id : '';
-
-  // Current bowler
   const currentBowlerId = isCurrentInnings && lastBall ? lastBall.bowler_id : '';
 
-  // Current over balls (for the live strip)
   const currentOverNum = Math.floor(displayInnings.total_balls / 6);
-  const currentOverBalls = displayBalls
-    .filter(b => b.over_number === currentOverNum)
-    .map(b => {
-      const lbl = ballLabel(b);
-      if (b.is_wicket) return 'W';
-      if (b.extra_type === 'wide') return 'Wd';
-      if (b.extra_type === 'noball') return 'Nb';
-      return String((b.runs_off_bat ?? 0) + (b.extras ?? 0));
-    });
 
   const prevInnings = inningsList.find(i => i.status === 'complete') ?? null;
 
-  return (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg)', paddingBottom: '24px' }}>
+  // Tab button style helper
+  const tabStyle = (t: string) => ({
+    flex: 1, padding: '10px', borderRadius: '8px',
+    background: activeTab === t ? 'rgba(227,27,35,.12)' : 'transparent',
+    color: activeTab === t ? '#fca5a5' : 'var(--muted)',
+    border: activeTab === t ? '1px solid rgba(227,27,35,.2)' : '1px solid transparent',
+    fontSize: '11px', fontWeight: 800 as const, cursor: 'pointer',
+    fontFamily: 'Barlow, sans-serif', letterSpacing: '.6px', textTransform: 'uppercase' as const,
+    transition: 'all .2s ease',
+  });
 
-      {/* Sticky score header — same as scorer */}
+  return (
+    <div style={{ minHeight: '100dvh', background: 'var(--bg)', paddingBottom: '24px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+
+      {/* Sticky score header */}
       <ScoreHeader
         innings={displayInnings}
         match={match}
@@ -177,17 +212,81 @@ export default function SpectatorView({
         onOpenScorecard={() => setActiveTab('scorecard')}
       />
 
+      {/* Owner admin controls */}
+      {isOwner && code && match.status !== 'result' && (
+        <div style={{ margin: '8px 14px 0', display: 'flex', gap: '8px' }}>
+          <button
+            onClick={async () => {
+              await fetch(`/api/match/${code}/action`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: match.is_paused ? 'resume_match' : 'pause_match', data: { matchId: match.id } }),
+              });
+            }}
+            style={{ flex: 1, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: '#9ca3af', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+          >
+            {match.is_paused ? '▶ Resume' : '⏸ Pause'}
+          </button>
+          <button
+            onClick={() => {
+              if (confirm('Cancel this match?')) {
+                fetch(`/api/match/${code}/action`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'cancel_match', data: { matchId: match.id } }),
+                });
+              }
+            }}
+            style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', color: '#f87171', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+          >
+            ✕ Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Owner result controls */}
+      {isOwner && code && match.status === 'result' && match.result && (
+        <div style={{ margin: '12px 14px 0', background: 'linear-gradient(135deg,rgba(34,197,94,.1),rgba(34,197,94,.03))', border: '1px solid rgba(34,197,94,.2)', borderRadius: '14px', padding: '16px', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.5rem', marginBottom: '6px' }}>🏆</div>
+          <p style={{ color: '#22c55e', fontWeight: 800, fontSize: '15px', fontFamily: 'Barlow, sans-serif', marginBottom: '14px' }}>{match.result}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <button
+              onClick={async () => {
+                const res = await fetch(`/api/match/${code}/action`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'new_match', data: { overs: match.overs, team1Id: match.team1_id, team2Id: match.team2_id, matchNumber: inningsList.length > 0 ? Math.ceil(inningsList.length / 2) + 1 : 2 }}),
+                });
+                if (res.ok) router.push(`/match/${code}/toss`);
+              }}
+              style={{ background: '#e31b23', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+            >
+              Play Again — Same Teams
+            </button>
+            <button
+              onClick={async () => {
+                await fetch(`/api/match/${code}/action`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'reset_teams', data: {} }),
+                });
+                router.push(`/match/${code}/lobby`);
+              }}
+              style={{ background: 'rgba(255,255,255,.06)', color: '#d1d5db', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+            >
+              Rearrange Teams
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Chase bar */}
       {target && needed !== null && isCurrentInnings && isLive && (
-        <div style={{ margin: '12px 14px 0', background: 'rgba(249,115,22,.08)', border: '1px solid rgba(249,115,22,.18)', borderRadius: '10px', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ margin: '12px 14px 0', background: 'rgba(249,115,22,.08)', border: '1px solid rgba(249,115,22,.18)', borderRadius: '12px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>Chase</div>
+            <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>Chase</div>
             <div style={{ fontSize: '22px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: '#fca5a5', lineHeight: 1, marginTop: '2px' }}>
-              {needed} <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--muted)' }}>runs needed</span>
+              {needed} <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--muted)' }}>needed</span>
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>RRR · Balls</div>
+            <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>RRR · Balls</div>
             <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: '#fca5a5', lineHeight: 1, marginTop: '2px' }}>
               {rrr?.toFixed(2)} <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--muted)' }}>· {ballsLeft}b</span>
             </div>
@@ -197,13 +296,13 @@ export default function SpectatorView({
 
       {/* Innings toggle */}
       {inningsList.length > 1 && (
-        <div style={{ display: 'flex', background: 'var(--s2)', borderRadius: '8px', padding: '3px', margin: '12px 14px 0', border: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', background: 'var(--s2)', borderRadius: '10px', padding: '3px', margin: '12px 14px 0', border: '1px solid var(--border)' }}>
           {inningsList.map(inn => {
             const t = inn.team_id === team1Obj.id ? team1Obj : team2Obj;
             const active = activeInningsId === inn.id;
             return (
               <button key={inn.id} onClick={() => setActiveInningsId(inn.id)} style={{
-                flex: 1, padding: '9px', borderRadius: '6px',
+                flex: 1, padding: '9px', borderRadius: '8px',
                 background: active ? 'var(--s3)' : 'transparent',
                 color: active ? 'var(--txt)' : 'var(--muted)',
                 border: 'none', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
@@ -216,30 +315,24 @@ export default function SpectatorView({
         </div>
       )}
 
-      {/* Tab bar: LIVE | SCORECARD */}
-      <div style={{ display: 'flex', margin: '12px 14px 0', background: 'var(--s1)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border)' }}>
-        {(['live', 'scorecard'] as const).map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} style={{
-            flex: 1, padding: '8px', borderRadius: '6px',
-            background: activeTab === t ? 'var(--s3)' : 'transparent',
-            color: activeTab === t ? 'var(--txt)' : 'var(--muted)',
-            border: 'none', fontSize: '12px', fontWeight: 800, cursor: 'pointer',
-            fontFamily: 'Barlow, sans-serif', letterSpacing: '.5px', textTransform: 'uppercase',
-            transition: '.15s',
-          }}>
-            {t === 'live' ? '⚡ Live' : '📋 Scorecard'}
+      {/* Tab bar: LIVE | STATS | SCORECARD */}
+      <div style={{ display: 'flex', margin: '12px 14px 0', background: 'var(--s1)', borderRadius: '10px', padding: '3px', border: '1px solid var(--border)', gap: '3px' }}>
+        {(['live', 'stats', 'scorecard'] as const).map(t => (
+          <button key={t} onClick={() => setActiveTab(t)} style={tabStyle(t)}>
+            {t === 'live' ? '⚡ Live' : t === 'stats' ? '📊 Stats' : '📋 Card'}
           </button>
         ))}
       </div>
 
       <div style={{ padding: '12px 14px 0' }}>
 
+        {/* ─── LIVE TAB ─── */}
         {activeTab === 'live' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
             {/* Current over dots strip */}
             {isCurrentInnings && isLive && (
-              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}>
+              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', padding: '14px 16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--live)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>
                     This Over — {currentOverNum + 1}
@@ -272,12 +365,11 @@ export default function SpectatorView({
             )}
 
             {/* On-field players */}
-            {isCurrentInnings && (strikerId || currentBowlerId) && (
-              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>On Field</span>
                 </div>
-                <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {[strikerId, lastBall?.non_striker_id].filter(Boolean).map((pid, i) => {
                     const p = players.find(pl => pl.id === pid);
                     if (!p) return null;
@@ -289,8 +381,8 @@ export default function SpectatorView({
                     const sr = faced > 0 ? ((runs / faced) * 100).toFixed(1) : '0.0';
                     return (
                       <div key={pid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: i === 0 ? 'var(--live)' : 'var(--s3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 800, color: i === 0 ? '#fff' : 'var(--muted)', fontFamily: 'Barlow Condensed, sans-serif' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: i === 0 ? 'linear-gradient(135deg,#e31b23,#b91c1c)' : 'var(--s3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800, color: i === 0 ? '#fff' : 'var(--muted)', fontFamily: 'Barlow Condensed, sans-serif' }}>
                             {p.name[0]}
                           </div>
                           <div>
@@ -299,7 +391,7 @@ export default function SpectatorView({
                             </div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '12px', fontSize: '12px', fontFamily: 'Barlow Condensed, sans-serif', fontWeight: 700 }}>
+                        <div style={{ display: 'flex', gap: '10px', fontSize: '12px', fontFamily: 'Barlow Condensed, sans-serif', fontWeight: 700 }}>
                           <span style={{ color: 'var(--green)' }}>{runs}</span>
                           <span style={{ color: 'var(--muted)' }}>({faced})</span>
                           {fours > 0 && <span style={{ color: 'var(--gold)' }}>{fours}×4</span>}
@@ -317,14 +409,14 @@ export default function SpectatorView({
                     const runs = bBalls.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
                     const wkts = bBalls.filter(b => b.is_wicket && b.wicket_type !== 'runout').length;
                     return (
-                      <div key={currentBowlerId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--s3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 800, color: 'var(--blue)', fontFamily: 'Barlow Condensed, sans-serif' }}>
+                      <div key={currentBowlerId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--s3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800, color: 'var(--blue)', fontFamily: 'Barlow Condensed, sans-serif' }}>
                             {p.name[0]}
                           </div>
                           <div style={{ fontSize: '13px', fontWeight: 700, fontFamily: 'Barlow, sans-serif' }}>{p.name}</div>
                         </div>
-                        <div style={{ display: 'flex', gap: '12px', fontSize: '12px', fontFamily: 'Barlow Condensed, sans-serif', fontWeight: 700 }}>
+                        <div style={{ display: 'flex', gap: '10px', fontSize: '12px', fontFamily: 'Barlow Condensed, sans-serif', fontWeight: 700 }}>
                           <span style={{ color: 'var(--blue)' }}>{Math.floor(legal / 6)}.{legal % 6}</span>
                           <span style={{ color: 'var(--muted)' }}>-{runs}-</span>
                           <span style={{ color: wkts > 0 ? '#f87171' : 'var(--muted)' }}>{wkts}w</span>
@@ -334,16 +426,15 @@ export default function SpectatorView({
                   })()}
                 </div>
               </div>
-            )}
 
-            {/* Ball-by-ball feed */}
+            {/* Commentary feed */}
             {sortedBalls.length > 0 && (
-              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <div style={{ width: '3px', height: '14px', background: 'var(--live)', borderRadius: '2px' }} />
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Ball by Ball</span>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Commentary</span>
                 </div>
-                <div ref={feedRef} style={{ maxHeight: '340px', overflowY: 'auto' }}>
+                <div ref={feedRef}>
                   {sortedBalls.map((b, idx) => {
                     const lbl = ballLabel(b);
                     const batsman = players.find(p => p.id === b.batsman_id);
@@ -352,17 +443,17 @@ export default function SpectatorView({
                     return (
                       <div key={b.id ?? idx} style={{
                         display: 'flex', alignItems: 'center', gap: '12px',
-                        padding: '10px 14px', borderBottom: '1px solid var(--border)',
+                        padding: '12px 16px', borderBottom: '1px solid var(--border)',
                         background: b.is_wicket ? 'rgba(239,68,68,.04)' : b.runs_off_bat === 6 ? 'rgba(124,58,237,.04)' : b.runs_off_bat === 4 ? 'rgba(251,191,36,.03)' : 'transparent',
                       }}>
                         <div style={{
-                          width: '36px', height: '36px', borderRadius: '50%', background: lbl.bg,
+                          width: '38px', height: '38px', borderRadius: '10px', background: lbl.bg,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: lbl.text.length > 1 ? '11px' : '16px', fontWeight: 900,
                           fontFamily: 'Barlow Condensed, sans-serif', color: lbl.color, flexShrink: 0,
                         }}>{lbl.text}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event}</div>
+                          <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.4 }}>{event}</div>
                           <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', marginTop: '1px' }}>
                             {b.over_number + 1}.{b.ball_number} · {batsman?.name ?? ''} · {bowler?.name ?? ''}
                           </div>
@@ -376,11 +467,11 @@ export default function SpectatorView({
 
             {/* Recent overs */}
             {overHistory.length > 0 && (
-              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Overs</span>
                 </div>
-                <div style={{ padding: '4px 14px' }}>
+                <div style={{ padding: '4px 16px' }}>
                   {[...overHistory].reverse().slice(0, 5).map(ov => (
                     <div key={ov.overNumber} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -398,26 +489,99 @@ export default function SpectatorView({
           </div>
         )}
 
-        {activeTab === 'scorecard' && (
+        {/* ─── STATS TAB ─── */}
+        {activeTab === 'stats' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ width: '3px', height: '14px', background: 'var(--green)', borderRadius: '2px' }} />
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
+            {/* Batting card */}
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '4px', height: '16px', background: 'var(--green)', borderRadius: '2px' }} />
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
+                  {battingTeamObj.name} — Batting
+                </span>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <BattingTable players={battingPlayers} balls={displayBalls} strikerId={strikerId} />
               </div>
             </div>
-            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ width: '3px', height: '14px', background: 'var(--blue)', borderRadius: '2px' }} />
-                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
+
+            {/* Bowling card */}
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '4px', height: '16px', background: 'var(--blue)', borderRadius: '2px' }} />
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
+                  {bowlingTeamObj.name} — Bowling
+                </span>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <BowlingTable players={bowlingPlayers} balls={displayBalls} />
               </div>
             </div>
+
+            {/* Previous innings stats */}
+            {prevInnings && displayInnings.id !== prevInnings.id && (
+              <>
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '4px', height: '16px', background: 'var(--muted)', borderRadius: '2px' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
+                      1st Innings — Batting
+                    </span>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <BattingTable players={players.filter(p => p.team_id === prevInnings.team_id)} balls={balls.filter(b => b.innings_id === prevInnings.id)} strikerId="" />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ─── SCORECARD TAB ─── */}
+        {activeTab === 'scorecard' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '4px', height: '16px', background: 'var(--green)', borderRadius: '2px' }} />
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>Batting</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <BattingTable players={battingPlayers} balls={displayBalls} strikerId={strikerId} />
+              </div>
+            </div>
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '4px', height: '16px', background: 'var(--blue)', borderRadius: '2px' }} />
+                <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>Bowling</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <BowlingTable players={bowlingPlayers} balls={displayBalls} />
+              </div>
+            </div>
+
+            {/* Charts under Scorecard */}
+            {displayBalls.length > 0 && (
+              <>
+                <FallOfWickets balls={displayBalls} />
+                
+                {overHistory.length > 0 && (
+                  <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.7px', marginBottom: '10px', fontFamily: 'Barlow, sans-serif' }}>Run Progression</div>
+                    <WormGraph
+                      team1Overs={overHistory}
+                      totalOvers={match.overs}
+                      team1Name={battingTeamObj?.name}
+                    />
+                  </div>
+                )}
+
+                <ManhattanChart
+                  overHistory={overHistory}
+                  totalOvers={match.overs}
+                  teamName={battingTeamObj?.name}
+                />
+              </>
+            )}
           </div>
         )}
 

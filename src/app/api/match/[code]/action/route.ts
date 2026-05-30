@@ -410,6 +410,105 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
 
+    case 'undo_last_over': {
+      const { inningsId, matchId } = data;
+      const { data: innings } = await supabase.from('innings').select('*').eq('id', inningsId).single();
+      if (!innings || innings.status !== 'active') {
+        return NextResponse.json({ error: 'Cannot undo in inactive innings' }, { status: 400 });
+      }
+
+      // Find the highest over number
+      const { data: maxOverQuery } = await supabase.from('balls')
+        .select('over_number')
+        .eq('innings_id', inningsId)
+        .order('over_number', { ascending: false })
+        .limit(1)
+        .single();
+        
+      if (!maxOverQuery) {
+        return NextResponse.json({ error: 'No overs to undo' }, { status: 400 });
+      }
+      
+      const lastOverNumber = maxOverQuery.over_number;
+      
+      // Delete the balls of the last over
+      await supabase.from('balls').delete().eq('innings_id', inningsId).eq('over_number', lastOverNumber);
+      
+      // Fetch all remaining balls to rebuild innings stats and current partnership
+      const { data: remainingBalls } = await supabase.from('balls')
+        .select('*')
+        .eq('innings_id', inningsId)
+        .order('delivery_number', { ascending: true });
+        
+      let totalRuns = 0;
+      let totalBalls = 0;
+      let totalWickets = 0;
+      let totalExtras = 0;
+      
+      let pRuns = 0;
+      let pBalls = 0;
+      let pBat1 = '';
+      let pBat2: string | null = null;
+      
+      if (remainingBalls && remainingBalls.length > 0) {
+        for (const b of remainingBalls) {
+          totalRuns += b.runs_off_bat + b.extras;
+          totalExtras += b.extras;
+          if (b.extra_type !== 'wide' && b.extra_type !== 'noball') totalBalls++;
+          if (b.is_wicket) totalWickets++;
+        }
+        
+        // Walk backwards to rebuild the active partnership
+        for (let i = remainingBalls.length - 1; i >= 0; i--) {
+          const b = remainingBalls[i];
+          pRuns += b.runs_off_bat + b.extras;
+          if (b.extra_type !== 'wide' && b.extra_type !== 'noball') pBalls++;
+          pBat1 = b.batsman_id;
+          pBat2 = b.non_striker_id === 'single' ? null : b.non_striker_id;
+          if (b.is_wicket) break;
+        }
+      }
+
+      // Update Innings
+      await supabase.from('innings').update({
+        total_runs: totalRuns,
+        total_balls: totalBalls,
+        total_extras: totalExtras,
+        total_wickets: totalWickets,
+      }).eq('id', inningsId);
+      
+      // Delete all OPEN partnerships and recreate the correct one
+      await supabase.from('partnerships').delete().eq('innings_id', inningsId).is('wicket_number', null);
+      
+      if (remainingBalls && remainingBalls.length > 0) {
+        await supabase.from('partnerships').insert({
+          innings_id: inningsId,
+          batsman1_id: pBat1,
+          batsman2_id: pBat2,
+          runs: pRuns,
+          balls: pBalls,
+          wicket_number: null
+        });
+      }
+
+      // Broadcast the state update via score_tickers
+      const { data: match } = await supabase.from('matches').select('id,status').eq('id', matchId).single();
+      if (match) {
+        await supabase.from('score_tickers').upsert({
+          session_id: session.id,
+          data: {
+            // Emitting empty new_balls forces the client to rely on its local state truncation if we had one
+            // Wait, we need to tell the client to refetch balls or we can just send a flag
+            reload_balls: true,
+            innings_update: { id: inningsId, total_runs: totalRuns, total_balls: totalBalls, total_extras: totalExtras, total_wickets: totalWickets },
+            match_update: { id: matchId, status: match.status }
+          }
+        }, { onConflict: 'session_id' });
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }

@@ -48,7 +48,7 @@ export default function LeaderboardPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '22px', fontWeight: 800 }}>Rankings</div>
-            <div style={{ fontSize: '12px', color: '#9ca3af' }}>Global player leaderboard</div>
+            <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Global player leaderboard</div>
           </div>
           <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(227,27,35,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#e31b23" strokeWidth="2">
@@ -58,7 +58,7 @@ export default function LeaderboardPage() {
         </div>
 
         {/* Category tabs */}
-        <div style={{ display: 'flex', background: '#111', borderRadius: '12px', padding: '4px', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', background: 'var(--s1)', borderRadius: '12px', padding: '4px', marginBottom: '10px' }}>
           {(['batting','bowling','allrounder'] as Category[]).map(c => (
             <button
               key={c}
@@ -86,19 +86,19 @@ export default function LeaderboardPage() {
 
       <div style={{ padding: '0 20px' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#6b7280' }}>Loading rankings…</div>
+          <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--dim)' }}>Loading rankings…</div>
         ) : players.length === 0 ? (
-          <div style={{ background: '#111', borderRadius: '16px', padding: '40px', textAlign: 'center', border: '1px solid #1f1f1f' }}>
-            <div style={{ fontSize: '32px', marginBottom: '12px', color: '#9ca3af' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '16px', padding: '40px', textAlign: 'center', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '32px', marginBottom: '12px', color: 'var(--muted)' }}>
               <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto', display: 'block' }}>
                 <path strokeLinecap="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
               </svg>
             </div>
             <div style={{ fontWeight: 700, marginBottom: '8px' }}>No Rankings Yet</div>
-            <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px' }}>Play matches to appear here</div>
+            <div style={{ fontSize: '13px', color: 'var(--dim)', marginBottom: '16px' }}>Play matches to appear here</div>
             <button
               onClick={() => router.push('/create')}
-              style={{ background: '#e31b23', color: '#fff', border: 'none', borderRadius: '10px', padding: '10px 24px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+              style={{ background: 'var(--live)', color: '#fff', border: 'none', borderRadius: '10px', padding: '10px 24px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
             >
               Create Match
             </button>
@@ -132,16 +132,16 @@ export default function LeaderboardPage() {
                 key={p.userId}
                 style={{ background: p.isMe ? 'rgba(227,27,35,.1)' : '#111', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${p.isMe ? 'rgba(227,27,35,.3)' : '#1f1f1f'}` }}
               >
-                <div style={{ width: '28px', fontSize: '14px', fontWeight: 800, color: '#6b7280', textAlign: 'center', flexShrink: 0 }}>
+                <div style={{ width: '28px', fontSize: '14px', fontWeight: 800, color: 'var(--dim)', textAlign: 'center', flexShrink: 0 }}>
                   {MEDAL[p.rank] || `#${p.rank}`}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '14px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {p.name}
-                    {p.isMe && <span style={{ fontSize: '10px', background: '#e31b23', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 800 }}>YOU</span>}
+                    {p.isMe && <span style={{ fontSize: '10px', background: 'var(--live)', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 800 }}>YOU</span>}
                   </div>
-                  {p.secondary && <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>{p.secondary}</div>}
-                  {p.meta && <div style={{ fontSize: '10px', color: '#4b5563', marginTop: '1px' }}>{p.meta}</div>}
+                  {p.secondary && <div style={{ fontSize: '11px', color: 'var(--dim)', marginTop: '2px' }}>{p.secondary}</div>}
+                  {p.meta && <div style={{ fontSize: '10px', color: 'var(--dim)', marginTop: '1px' }}>{p.meta}</div>}
                 </div>
                 <div style={{ fontSize: '15px', fontWeight: 800, color: '#fff', flexShrink: 0 }}>{p.value}</div>
               </div>
