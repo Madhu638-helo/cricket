@@ -52,6 +52,7 @@ export default function EditProfilePage() {
       .then(d => {
         if (d.error) { router.push('/login'); return; }
         setForm({
+          name:             d.user?.name             ?? '',
           batting_style:    d.user?.batting_style    ?? 'right_hand',
           bowling_style:    d.user?.bowling_style    ?? 'none',
           player_role:      d.user?.player_role      ?? 'batsman',
@@ -97,6 +98,18 @@ export default function EditProfilePage() {
 
       <div style={{ padding: '20px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {/* Full Name */}
+          <div>
+            <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '6px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Full Name</div>
+            <input
+              type="text"
+              value={form.name ?? ''}
+              onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+              placeholder="e.g. Rahul Sharma"
+              style={fieldStyle}
+            />
+          </div>
 
           {/* Select fields */}
           {[

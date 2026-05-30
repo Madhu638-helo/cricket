@@ -164,12 +164,7 @@ export default function ProfilePage() {
         {/* Avatar + name */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '16px' }}>
           <div style={{ position: 'relative' }}>
-            <Avatar name={user?.name ?? 'P'} size={72} />
-            {user?.jersey_number && (
-              <div style={{ position: 'absolute', bottom: -4, right: -4, background: 'var(--live)', color: '#fff', fontSize: '10px', fontWeight: 800, borderRadius: '8px', padding: '1px 5px', border: '2px solid #000' }}>
-                #{user.jersey_number}
-              </div>
-            )}
+            <Avatar name={user?.name ?? 'P'} size={72} jerseyNumber={user?.jersey_number} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '22px', fontWeight: 800, marginBottom: '2px' }}>{user?.name}</div>
