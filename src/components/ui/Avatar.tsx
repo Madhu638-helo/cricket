@@ -44,8 +44,8 @@ export default function Avatar({ name, size = 40, gradient, fontSize, online = f
           width: size,
           height: size,
           backgroundImage: 'url(/jersey.png)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
+          backgroundSize: '185%',
+          backgroundPosition: 'center 25%',
           backgroundColor: '#e5e7eb', // fallback
           display: 'flex',
           alignItems: 'center',
@@ -62,9 +62,9 @@ export default function Avatar({ name, size = 40, gradient, fontSize, online = f
           <span style={{
             color: '#fff',
             fontWeight: 800,
-            fontSize: fs,
+            fontSize: fs * 1.1,
             fontFamily: "'Space Grotesk', sans-serif",
-            marginTop: size * 0.15, // push down slightly below "INDIA"
+            marginTop: size * 0.22, // push down perfectly onto the blue back
             textShadow: '0 2px 4px rgba(0,0,0,0.5)',
             letterSpacing: '-0.5px'
           }}>
@@ -75,8 +75,8 @@ export default function Avatar({ name, size = 40, gradient, fontSize, online = f
            <span style={{
              color: 'rgba(255,255,255,0.7)',
              fontWeight: 800,
-             fontSize: fs * 0.8,
-             marginTop: size * 0.15,
+             fontSize: fs * 0.85,
+             marginTop: size * 0.22,
            }}>
              {initials(name)}
            </span>

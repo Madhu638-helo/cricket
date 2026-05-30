@@ -293,7 +293,7 @@ model User {
   bowling_style         String?
   player_role           String?
   batting_position      String?
-  jersey_number         Int?
+  jersey_number         Int?                   @unique
   bio                   String?
   preferred_ground      String?
   date_of_birth         DateTime?              @db.Date

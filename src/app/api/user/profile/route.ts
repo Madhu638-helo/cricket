@@ -43,8 +43,21 @@ export async function PATCH(request: Request) {
     if (body[key] !== undefined) update[key] = body[key];
   }
 
+  if (update.jersey_number !== undefined) {
+    if (update.jersey_number === '' || update.jersey_number === null) {
+      update.jersey_number = null;
+    } else {
+      update.jersey_number = parseInt(update.jersey_number as string, 10);
+    }
+  }
+
   const supabase = await createServiceClient();
   const { error } = await supabase.from('users').update(update).eq('id', session.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) {
+    if (error.code === '23505' && error.message.includes('jersey_number')) {
+      return NextResponse.json({ error: 'This jersey number is already taken by another player.' }, { status: 400 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
   return NextResponse.json({ success: true });
 }

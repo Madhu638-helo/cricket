@@ -45,6 +45,7 @@ export default function EditProfilePage() {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     fetch('/api/user/profile')
@@ -68,13 +69,25 @@ export default function EditProfilePage() {
 
   const save = async () => {
     setSaving(true);
-    await fetch('/api/user/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
-    });
-    setSaving(false);
-    router.push('/profile');
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Failed to update profile');
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+      router.push('/profile');
+    } catch (e) {
+      setErrorMsg('An unexpected error occurred.');
+      setSaving(false);
+    }
   };
 
   if (!loaded) return (
@@ -166,6 +179,11 @@ export default function EditProfilePage() {
           </div>
 
           {/* Save button */}
+          {errorMsg && (
+            <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: '1px solid rgba(239,68,68,0.2)' }}>
+              {errorMsg}
+            </div>
+          )}
           <button
             onClick={save}
             disabled={saving}
