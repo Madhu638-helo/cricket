@@ -1,0 +1,36 @@
+{
+  "name": "Cricket Score Pro",
+  "short_name": "CricScore",
+  "description": "Live cricket scoring — fast, mobile-first, real-time.",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050914",
+  "theme_color": "#050914",
+  "start_url": "/join",
+  "scope": "/",
+  "categories": ["sports", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Join Match",
+      "short_name": "Join",
+      "description": "Enter a match code to join",
+      "url": "/join",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
