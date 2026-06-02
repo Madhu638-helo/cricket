@@ -64,7 +64,7 @@ export default function ScoreHeader({
     <div style={{
       position: 'sticky', top: 0, zIndex: 100,
       backdropFilter: 'blur(24px)',
-      background: 'rgba(7,13,20,.96)',
+      background: 'var(--s1)',
       borderBottom: '1px solid var(--border)',
     }}>
       {/* Top nav */}
@@ -72,7 +72,7 @@ export default function ScoreHeader({
         <button
           onClick={() => router.push('/')}
           aria-label="Back"
-          style={{ background: 'rgba(255,255,255,.06)', border: 'none', borderRadius: '8px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+          style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '8px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
         >
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
@@ -101,14 +101,14 @@ export default function ScoreHeader({
         {activeTab === 'scorecard' || activeTab === 'stats' ? (
           <button
             onClick={onBackToScore}
-            style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--live)', cursor: 'pointer', flexShrink: 0, fontFamily: 'Barlow, sans-serif', letterSpacing: '.3px' }}
+            style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--live)', cursor: 'pointer', flexShrink: 0, fontFamily: 'Barlow, sans-serif', letterSpacing: '.3px' }}
           >
             ← SCORE
           </button>
         ) : onOpenScorecard ? (
           <button
             onClick={onOpenScorecard}
-            style={{ background: 'rgba(255,255,255,.06)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--muted)', cursor: 'pointer', flexShrink: 0, fontFamily: 'Barlow, sans-serif', letterSpacing: '.3px' }}
+            style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--muted)', cursor: 'pointer', flexShrink: 0, fontFamily: 'Barlow, sans-serif', letterSpacing: '.3px' }}
           >
             CARD
           </button>
@@ -119,7 +119,7 @@ export default function ScoreHeader({
       {innings && (
         <div style={{ padding: '4px 14px 12px' }}>
           {isFreehitNext && (
-            <div style={{ background: 'rgba(34,197,94,.1)', color: '#86efac', border: '1px solid rgba(34,197,94,.25)', padding: '5px', borderRadius: '6px', textAlign: 'center', fontSize: '11px', fontWeight: 800, marginBottom: '8px', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
+            <div style={{ background: 'var(--green-lo)', color: 'var(--green)', border: '1px solid var(--green)', padding: '5px', borderRadius: '6px', textAlign: 'center', fontSize: '11px', fontWeight: 800, marginBottom: '8px', letterSpacing: '.5px', fontFamily: 'Barlow, sans-serif' }}>
               ⚡ FREE HIT NEXT BALL
             </div>
           )}
@@ -184,7 +184,7 @@ export default function ScoreHeader({
 
               {/* Chase info */}
               {target && needed !== null && (
-                <div style={{ fontSize: '11px', color: '#fca5a5', fontWeight: 700, fontFamily: 'Barlow, sans-serif', marginTop: '2px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--red)', fontWeight: 700, fontFamily: 'Barlow, sans-serif', marginTop: '2px' }}>
                   Need {Math.max(0, needed)} off {ballsLeft}b · RRR {rrr?.toFixed(2) ?? '-'}
                 </div>
               )}

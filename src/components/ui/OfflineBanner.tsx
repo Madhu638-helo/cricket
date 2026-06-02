@@ -39,9 +39,9 @@ export default function OfflineBanner() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: '8px',
+      gap: '12px',
     }}>
-      <span style={{ fontSize: '14px' }}>📡</span>
+      <img src="/error_rain_stumps.png" alt="Rain stops play" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
       You're offline — scores won't sync until reconnected
     </div>
   );

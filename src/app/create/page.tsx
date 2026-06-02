@@ -94,10 +94,10 @@ export default function CreateMatchPage() {
   };
 
   return (
-    <div id="s-create" className="screen" style={{ background: '#000', color: '#fff', minHeight: '100dvh' }}>
-      <div className="hdr" style={{ padding: '20px', borderBottom: '1px solid #1f2937' }}>
+    <div id="s-create" className="screen">
+      <div className="hdr" style={{ padding: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, borderRadius: '12px', background: '#111827', border: '1px solid #1f2937' }} onClick={() => router.back()}>
+          <button className="btn btn-ghost" style={{ width: '40px', height: '40px', padding: 0, borderRadius: '12px' }} onClick={() => router.back()}>
             <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
           </button>
           <div className="heading" style={{ fontSize: '20px', fontWeight: 700 }}>Create Match</div>
@@ -108,7 +108,7 @@ export default function CreateMatchPage() {
         
         {/* Match Name */}
         <div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Match Name</div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Match Name</div>
           <input 
             className="inp" 
             placeholder="Evening T20 · Surat Ground" 
@@ -119,7 +119,7 @@ export default function CreateMatchPage() {
 
         {/* Format */}
         <div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Format</div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Format</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
             {['5 Ov', '10 Ov', 'T20'].map(fmt => (
               <button 
@@ -186,7 +186,7 @@ export default function CreateMatchPage() {
         {/* Team Size & Ball Type */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Team Size</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Team Size</div>
             <input 
               type="number"
               className="inp" 
@@ -196,7 +196,7 @@ export default function CreateMatchPage() {
             />
           </div>
           <div>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Ball Type</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Ball Type</div>
             <input 
               className="inp" 
               placeholder="Tennis" 
@@ -209,7 +209,7 @@ export default function CreateMatchPage() {
         {/* Date & Time */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Date</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Date</div>
             <input 
               type="date"
               className="inp" 
@@ -219,7 +219,7 @@ export default function CreateMatchPage() {
             />
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Time</div>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Time</div>
             <input 
               type="time"
               className="inp" 
@@ -232,7 +232,7 @@ export default function CreateMatchPage() {
 
         {/* Ground */}
         <div>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Ground</div>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', letterSpacing: '1px', marginBottom: '8px', textTransform: 'uppercase' }}>Ground</div>
           <input 
             className="inp" 
             placeholder="Surat Cricket Ground" 
@@ -251,7 +251,7 @@ export default function CreateMatchPage() {
             {loading ? 'Creating...' : <><span style={{ fontSize: '20px', fontWeight: 'normal' }}>+</span> Create & Get Code</>}
           </button>
           
-          <div style={{ textAlign: 'center', fontSize: '12px', color: '#4b5563', marginTop: '16px' }}>
+          <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--dim)', marginTop: '16px' }}>
             A unique 6-character code will be generated for players to join
           </div>
         </div>

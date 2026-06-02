@@ -190,7 +190,7 @@ export default function WicketSheet({ open, onClose, onConfirm, fieldingTeamPlay
                     borderRadius: '10px',
                     border: isFielderSelected ? '2px solid #3b82f6' : '1px solid var(--border)',
                     background: isFielderSelected ? 'rgba(59,130,246,.1)' : 'var(--s2)',
-                    color: isFielderSelected ? '#93c5fd' : 'var(--txt)',
+                    color: isFielderSelected ? 'var(--blue)' : 'var(--txt)',
                     cursor: 'pointer',
                     fontSize: '12px',
                     fontWeight: 600,

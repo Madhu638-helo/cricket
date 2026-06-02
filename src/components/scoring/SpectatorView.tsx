@@ -28,10 +28,10 @@ function ballLabel(b: Ball): { text: string; color: string; bg: string } {
   const total = (b.runs_off_bat ?? 0) + (b.extras ?? 0);
   if (b.extra_type === 'wide') return { text: 'Wd', color: '#f0f0f0', bg: '#374151' };
   if (b.extra_type === 'noball') return { text: 'Nb', color: '#f0f0f0', bg: '#374151' };
-  if (b.extra_type === 'bye' || b.extra_type === 'legbye') return { text: `${total}${b.extra_type === 'bye' ? 'B' : 'Lb'}`, color: '#9ca3af', bg: '#1f2937' };
+  if (b.extra_type === 'bye' || b.extra_type === 'legbye') return { text: `${total}${b.extra_type === 'bye' ? 'B' : 'Lb'}`, color: 'var(--muted)', bg: 'var(--s2)' };
   if (b.runs_off_bat === 6) return { text: '6', color: '#fff', bg: '#7c3aed' };
   if (b.runs_off_bat === 4) return { text: '4', color: '#111', bg: '#fbbf24' };
-  if (b.runs_off_bat === 0) return { text: '·', color: '#6b7280', bg: '#1a1a1a' };
+  if (b.runs_off_bat === 0) return { text: '·', color: 'var(--muted)', bg: '#1a1a1a' };
   return { text: String(b.runs_off_bat), color: '#f0f0f0', bg: '#1e3a2f' };
 }
 
@@ -222,7 +222,7 @@ export default function SpectatorView({
                 body: JSON.stringify({ action: match.is_paused ? 'resume_match' : 'pause_match', data: { matchId: match.id } }),
               });
             }}
-            style={{ flex: 1, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: '#9ca3af', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+            style={{ flex: 1, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: 'var(--muted)', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
           >
             {match.is_paused ? '▶ Resume' : '⏸ Pause'}
           </button>
@@ -268,7 +268,7 @@ export default function SpectatorView({
                 });
                 router.push(`/match/${code}/lobby`);
               }}
-              style={{ background: 'rgba(255,255,255,.06)', color: '#d1d5db', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+              style={{ background: 'rgba(255,255,255,.06)', color: 'var(--txt)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
             >
               Rearrange Teams
             </button>

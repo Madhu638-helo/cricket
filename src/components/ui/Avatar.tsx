@@ -7,6 +7,7 @@ interface AvatarProps {
   fontSize?: number;
   online?: boolean;
   jerseyNumber?: number | string;
+  type?: 'player' | 'team';
   onClick?: () => void;
 }
 
@@ -32,21 +33,24 @@ function pickGradient(name: string): string {
   return gradients[Math.abs(hash) % gradients.length];
 }
 
-export default function Avatar({ name, size = 40, gradient, fontSize, online = false, jerseyNumber, onClick }: AvatarProps) {
+export default function Avatar({ name, size = 40, gradient, fontSize, online = false, jerseyNumber, type = 'player', onClick }: AvatarProps) {
   const fs = fontSize ?? Math.floor(size * 0.4);
   const showJersey = true; // ALWAYS SHOW JERSEY FOR EVERYONE!
 
   if (showJersey) {
+    const bgImage = type === 'team' ? 'url(/team_crest.png)' : (jerseyNumber ? 'url(/jersey.png)' : 'url(/player_avatar.png)');
+    const bgSize = type === 'team' || !jerseyNumber ? 'cover' : '185%';
+    
     return (
       <div
         className="av"
         style={{
           width: size,
           height: size,
-          backgroundImage: 'url(/jersey.png)',
-          backgroundSize: '185%',
-          backgroundPosition: 'center 25%',
-          backgroundColor: '#e5e7eb', // fallback
+          backgroundImage: bgImage,
+          backgroundSize: bgSize,
+          backgroundPosition: 'center',
+          backgroundColor: 'var(--s3)', // fallback
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

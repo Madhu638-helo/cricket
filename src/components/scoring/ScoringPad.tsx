@@ -17,6 +17,8 @@ interface ScoringPadProps {
 export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, onEndOverEarly, isFreehitNext, canUndo, disabled }: ScoringPadProps) {
   const [noBallRuns, setNoBallRuns] = useState(0);
   const [showNoBallExtra, setShowNoBallExtra] = useState(false);
+  const [showWideExtra, setShowWideExtra] = useState(false);
+  const [wideRuns, setWideRuns] = useState(1);
   const [showByeExtra, setShowByeExtra] = useState(false);
   const [showLbExtra, setShowLbExtra] = useState(false);
 
@@ -31,12 +33,15 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
 
   const handleWide = () => {
     vibrate(50);
-    onScore(0, 'wide', 1);
+    onScore(0, 'wide', wideRuns);
+    setWideRuns(1);
+    setShowWideExtra(false);
   };
 
   const handleNoBall = () => {
     vibrate(50);
-    onScore(noBallRuns, 'noball', 1 + noBallRuns);
+    // Submit 1 extra for the No-Ball, and the bat runs separately. Avoids double-counting.
+    onScore(noBallRuns, 'noball', 1);
     setNoBallRuns(0);
     setShowNoBallExtra(false);
   };
@@ -75,16 +80,40 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
           Score Ball
         </div>
         {isFreehitNext && (
-          <span style={{ fontSize: '10px', fontWeight: 800, color: '#fcd34d', background: 'rgba(245,158,11,.15)', padding: '3px 10px', borderRadius: '10px', border: '1px solid rgba(245,158,11,.2)', letterSpacing: '.5px', textTransform: 'uppercase', animation: 'pulse 2s infinite' }}>
-            🎯 FREE HIT
+          <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--gold)', background: 'rgba(245,158,11,.15)', padding: '3px 10px', borderRadius: '10px', border: '1px solid rgba(245,158,11,.2)', letterSpacing: '.5px', textTransform: 'uppercase', animation: 'pulse 2s infinite' }}>
+            ⚡ FREE HIT
           </span>
         )}
       </div>
 
+      {/* Wide runs picker */}
+      {showWideExtra && (
+        <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', borderRadius: '12px', padding: '12px', marginBottom: '12px' }}>
+          <p style={{ color: 'var(--red)', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+            Wide — total runs?
+          </p>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[1, 2, 3, 4, 5].map(r => (
+              <button
+                key={r}
+                onClick={() => setWideRuns(r)}
+                className="sbtn"
+                style={{ width: '40px', height: '40px', borderColor: wideRuns === r ? 'var(--red)' : 'var(--border)' }}
+              >
+                {r}
+              </button>
+            ))}
+            <button onClick={handleWide} className="sbtn" style={{ height: '40px', padding: '0 16px', background: 'rgba(239,68,68,.15)', color: 'var(--red)' }}>
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* No Ball runs picker */}
       {showNoBallExtra && (
         <div style={{ background: 'rgba(245,158,11,.1)', border: '1px solid rgba(245,158,11,.2)', borderRadius: '12px', padding: '12px', marginBottom: '12px' }}>
-          <p style={{ color: '#fcd34d', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+          <p style={{ color: 'var(--gold)', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
             No Ball — runs off bat?
           </p>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -93,12 +122,12 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
                 key={r}
                 onClick={() => setNoBallRuns(r)}
                 className="sbtn"
-                style={{ width: '40px', height: '40px', borderColor: noBallRuns === r ? '#fcd34d' : 'var(--border)' }}
+                style={{ width: '40px', height: '40px', borderColor: noBallRuns === r ? 'var(--gold)' : 'var(--border)' }}
               >
                 {r}
               </button>
             ))}
-            <button onClick={handleNoBall} className="sbtn" style={{ height: '40px', padding: '0 16px', background: 'rgba(245,158,11,.15)', color: '#fcd34d' }}>
+            <button onClick={handleNoBall} className="sbtn" style={{ height: '40px', padding: '0 16px', background: 'rgba(245,158,11,.15)', color: 'var(--gold)' }}>
               OK
             </button>
           </div>
@@ -108,7 +137,7 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
       {/* Bye runs picker */}
       {showByeExtra && (
         <div style={{ background: 'rgba(96,165,250,.1)', border: '1px solid rgba(96,165,250,.2)', borderRadius: '12px', padding: '12px', marginBottom: '12px' }}>
-          <p style={{ color: '#93c5fd', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+          <p style={{ color: 'var(--blue)', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
             Bye — how many runs?
           </p>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -132,7 +161,7 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
       {/* Leg Bye runs picker */}
       {showLbExtra && (
         <div style={{ background: 'rgba(167,139,250,.1)', border: '1px solid rgba(167,139,250,.2)', borderRadius: '12px', padding: '12px', marginBottom: '12px' }}>
-          <p style={{ color: '#c4b5fd', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+          <p style={{ color: 'var(--purple)', fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
             Leg Bye — how many runs?
           </p>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -172,12 +201,12 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
           disabled={isFreehitNext}
           onClick={() => handleWicket(0)}
         >
-          {isFreehitNext ? '🚫 FH' : 'Wicket'}
+          {isFreehitNext ? 'FH' : 'Wkt'}
         </button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={handleWide}>Wd</button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowNoBallExtra(v => !v); setShowByeExtra(false); setShowLbExtra(false); }}>Nb</button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowByeExtra(v => !v); setShowNoBallExtra(false); setShowLbExtra(false); }}>B</button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowLbExtra(v => !v); setShowNoBallExtra(false); setShowByeExtra(false); }}>Lb</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowWideExtra(v => !v); setShowNoBallExtra(false); setShowByeExtra(false); setShowLbExtra(false); }}>Wd</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowNoBallExtra(v => !v); setShowWideExtra(false); setShowByeExtra(false); setShowLbExtra(false); }}>Nb</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowByeExtra(v => !v); setShowNoBallExtra(false); setShowWideExtra(false); setShowLbExtra(false); }}>B</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowLbExtra(v => !v); setShowNoBallExtra(false); setShowWideExtra(false); setShowByeExtra(false); }}>Lb</button>
       </div>
 
       {/* Run-out on free hit */}
@@ -187,7 +216,7 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
           style={{ width: '100%', height: '40px', marginBottom: '8px', fontSize: '12px' }}
           onClick={() => handleWicket(0)}
         >
-          🏃 Run Out (allowed on Free Hit)
+          Run Out (Free Hit)
         </button>
       )}
 
@@ -199,14 +228,14 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
           disabled={!canUndo}
           onClick={onUndo}
         >
-          ↶ Undo
+          Undo
         </button>
         <button
           className="sbtn"
           style={{ height: '40px', color: 'var(--blue)', borderColor: 'rgba(96,165,250,.2)' }}
           onClick={onSwapStrike}
         >
-          ⇄ Swap
+          Swap
         </button>
         {onEndOverEarly ? (
           <button
@@ -214,7 +243,7 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
             style={{ height: '40px', fontSize: '11px' }}
             onClick={onEndOverEarly}
           >
-            ⏩ End Over
+            End Over
           </button>
         ) : (
           <button
@@ -222,7 +251,7 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
             style={{ height: '40px', fontSize: '11px' }}
             onClick={onRetiredHurt}
           >
-            🤕 Retired
+            Retired
           </button>
         )}
       </div>

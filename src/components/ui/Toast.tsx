@@ -34,8 +34,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const colors: Record<ToastType, { bg: string; border: string; text: string; icon: string }> = {
     success: { bg: 'rgba(34,197,94,.12)', border: 'rgba(34,197,94,.3)', text: '#4ade80', icon: '✓' },
     error: { bg: 'rgba(239,68,68,.12)', border: 'rgba(239,68,68,.3)', text: '#f87171', icon: '✕' },
-    info: { bg: 'rgba(96,165,250,.12)', border: 'rgba(96,165,250,.3)', text: '#93c5fd', icon: 'ℹ' },
-    warning: { bg: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.3)', text: '#fcd34d', icon: '⚠' },
+    info: { bg: 'rgba(96,165,250,.12)', border: 'rgba(96,165,250,.3)', text: 'var(--blue)', icon: 'ℹ' },
+    warning: { bg: 'rgba(245,158,11,.12)', border: 'rgba(245,158,11,.3)', text: 'var(--gold)', icon: '⚠' },
   };
 
   return (

@@ -5,24 +5,30 @@ const SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'super-secret-cricket-admin-key'
 );
 
-export async function proxy(request: NextRequest) {
-  // Only protect the /manage route
-  if (request.nextUrl.pathname.startsWith('/manage')) {
-    const token = request.cookies.get('cricket_user_session')?.value;
-    
-    if (!token) {
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
+const PUBLIC = ['/login', '/api/auth/'];
 
-    try {
-      await jwtVerify(token, SECRET);
-      return NextResponse.next();
-    } catch (err) {
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Pass through public routes + static assets
+  if (PUBLIC.some(p => pathname.startsWith(p))) {
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  const token = request.cookies.get('cricket_user_session')?.value;
+
+  if (!token) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  try {
+    await jwtVerify(token, SECRET);
+    return NextResponse.next();
+  } catch {
+    const res = NextResponse.redirect(new URL('/login', request.url));
+    res.cookies.delete('cricket_user_session');
+    return res;
+  }
 }
 
 export const config = {

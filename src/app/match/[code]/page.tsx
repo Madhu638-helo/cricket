@@ -41,6 +41,10 @@ export default function MatchPage({ params }: PageProps) {
   const [showNonStriker, setShowNonStriker] = useState(false);
   const [showInningsBreak, setShowInningsBreak] = useState(false);
 
+  // Overlays
+  const [showSixOverlay, setShowSixOverlay] = useState(false);
+  const [showWicketOverlay, setShowWicketOverlay] = useState(false);
+
   // Current on-field state (persisted in memory, updated after each ball)
   const [strikerId, setStrikerId] = useState<string>('');
   const [nonStrikerId, setNonStrikerId] = useState<string>('');
@@ -236,6 +240,16 @@ export default function MatchPage({ params }: PageProps) {
   const processLocalBall = (payload: any) => {
     const isExtra = payload.extra_type === 'wide' || payload.extra_type === 'noball';
 
+    // trigger overlays
+    if (payload.runs_off_bat === 6 && !payload.is_wicket && !isExtra) {
+      setShowSixOverlay(true);
+      setTimeout(() => setShowSixOverlay(false), 2000);
+    }
+    if (payload.is_wicket) {
+      setShowWicketOverlay(true);
+      setTimeout(() => setShowWicketOverlay(false), 2000);
+    }
+
     // Use all known balls (committed + pending) for over tracking
     const allLegal = inningsBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
     const currentOversFinished = Math.floor(allLegal / 6);
@@ -269,16 +283,27 @@ export default function MatchPage({ params }: PageProps) {
     const legalInOver = newPending.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
     const overComplete = legalInOver >= 6;
     const wickets = inningsBalls.filter(b => b.is_wicket).length + (payload.is_wicket ? 1 : 0);
-    const allOut = wickets >= 10;
+    const allOutLimit = battingPlayers.length > 0 ? battingPlayers.length - 1 : 10;
+    const allOut = wickets >= allOutLimit;
+
+    const totalPendingRuns = newPending.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
+    const newTotalRuns = (currentInnings?.total_runs ?? 0) + totalPendingRuns;
+    const targetChased = currentInnings?.innings_number === 2 && currentInnings?.target != null && newTotalRuns >= currentInnings.target;
     
-    if (overComplete || allOut) {
+    if (overComplete || allOut || targetChased) {
        // auto rotate at over end
-       if (overComplete && nextNonStriker !== 'single' && !allOut) {
+       if (overComplete && nextNonStriker !== 'single' && !allOut && !targetChased) {
           const temp = nextStriker;
           nextStriker = nextNonStriker;
           nextNonStriker = temp;
        }
-       showToast(allOut ? '🏏 All out! Submitting...' : '✅ Over complete — submitting...', 'info', 2000);
+       if (targetChased) {
+         showToast('🏆 Target chased! Submitting...', 'success', 2000);
+       } else if (allOut) {
+         showToast('🏏 All out! Submitting...', 'info', 2000);
+       } else {
+         showToast('✅ Over complete — submitting...', 'info', 2000);
+       }
        submitOver(newPending);
     }
     
@@ -467,7 +492,7 @@ export default function MatchPage({ params }: PageProps) {
                     });
                     router.push(`/match/${code}/lobby`);
                   }}
-                  style={{ background: 'rgba(255,255,255,.08)', color: '#d1d5db', border: '1px solid rgba(255,255,255,.1)', borderRadius: '12px', padding: '13px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: 'rgba(255,255,255,.08)', color: 'var(--txt)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '12px', padding: '13px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
                 >
                   Rearrange Teams
                 </button>
@@ -479,7 +504,7 @@ export default function MatchPage({ params }: PageProps) {
                     });
                     router.push('/');
                   }}
-                  style={{ background: 'transparent', color: '#6b7280', border: 'none', fontSize: '13px', cursor: 'pointer', padding: '6px' }}
+                  style={{ background: 'transparent', color: 'var(--muted)', border: 'none', fontSize: '13px', cursor: 'pointer', padding: '6px' }}
                 >
                   End Session
                 </button>
@@ -498,7 +523,7 @@ export default function MatchPage({ params }: PageProps) {
                   body: JSON.stringify({ action: match.is_paused ? 'resume_match' : 'pause_match', data: { matchId: match.id } }),
                 });
               }}
-              style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.1)', color: '#9ca3af', borderRadius: '10px', padding: '7px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.1)', color: 'var(--muted)', borderRadius: '10px', padding: '7px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
             >
               {match.is_paused ? '▶ Resume' : '⏸ Pause'}
             </button>
@@ -792,6 +817,18 @@ export default function MatchPage({ params }: PageProps) {
         featuredId={bowlerId}
         featuredLabel="PREV"
       />
+
+      {/* Overlays */}
+      {showSixOverlay && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', animation: 'fadeInOut 2s forwards' }}>
+          <img src="/action_six.png" alt="SIX!" style={{ width: '80%', maxWidth: '300px', objectFit: 'contain', animation: 'popZoom 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
+        </div>
+      )}
+      {showWicketOverlay && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', animation: 'fadeInOut 2s forwards' }}>
+          <img src="/action_wicket.png" alt="WICKET!" style={{ width: '80%', maxWidth: '300px', objectFit: 'contain', animation: 'popZoom 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
+        </div>
+      )}
 
       {showInningsBreak && prevInnings && team1Obj && team2Obj && (
         <InningsBreakSheet

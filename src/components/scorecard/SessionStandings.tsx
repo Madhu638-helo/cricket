@@ -45,8 +45,18 @@ export default function SessionStandings({ code }: SessionStandingsProps) {
         played.forEach((m: Match) => {
           const myInnings = (inningsList ?? [] as Innings[]).find((i: Innings) => i.match_id === m.id && i.team_id === team.id);
           const oppInnings = (inningsList ?? [] as Innings[]).find((i: Innings) => i.match_id === m.id && i.team_id !== team.id);
-          if (myInnings) { runsFor += myInnings.total_runs; ballsFor += myInnings.total_balls; }
-          if (oppInnings) { runsAgainst += oppInnings.total_runs; ballsAgainst += oppInnings.total_balls; }
+          
+          if (myInnings) {
+            runsFor += myInnings.total_runs;
+            const wasChasingAndWon = m.winner_id === team.id && myInnings.innings_number === 2;
+            // If they didn't successfully chase, and they batted fewer than max balls, they were bowled out
+            ballsFor += wasChasingAndWon ? myInnings.total_balls : Math.max(myInnings.total_balls, m.overs * 6);
+          }
+          if (oppInnings) {
+            runsAgainst += oppInnings.total_runs;
+            const oppWasChasingAndWon = m.winner_id === oppInnings.team_id && oppInnings.innings_number === 2;
+            ballsAgainst += oppWasChasingAndWon ? oppInnings.total_balls : Math.max(oppInnings.total_balls, m.overs * 6);
+          }
           totalMatchBalls = Math.max(totalMatchBalls, m.overs * 6);
         });
 

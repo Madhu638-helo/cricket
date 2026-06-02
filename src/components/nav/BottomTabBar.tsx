@@ -9,77 +9,84 @@ interface NavTab {
   icon: React.ReactNode;
 }
 
+// SF Symbol-inspired SVG icons
+const HomeIcon = () => (
+  <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 10.5L12 3l9 7.5V20a1 1 0 01-1 1h-5v-5h-6v5H4a1 1 0 01-1-1V10.5z"/>
+    <path d="M12 3v2" strokeWidth="1.2"/>
+  </svg>
+);
+
+const EyeIcon = () => (
+  <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12C1 12 5 5 12 5s11 7 11 7-4 7-11 7S1 12 1 12z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+
+const TrophyIcon = () => (
+  <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 2h12v8a6 6 0 01-12 0V2z"/>
+    <path d="M6 6H3a2 2 0 000 4c.9 0 1.7-.4 2.3-1M18 6h3a2 2 0 010 4c-.9 0-1.7-.4-2.3-1"/>
+    <path d="M12 16v4M9 20h6"/>
+    <path d="M8 16.5C9.2 17 10.5 17.3 12 17.3s2.8-.3 4-.8"/>
+  </svg>
+);
+
+const PersonCircleIcon = () => (
+  <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 13a3 3 0 100-6 3 3 0 000 6z"/>
+    <path d="M5.5 20.5c.5-3 3.3-5.2 6.5-5.2s6 2.2 6.5 5.2"/>
+  </svg>
+);
+
 const navTabs: NavTab[] = [
-  {
-    key: 'home',
-    label: 'Home',
-    path: '/',
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-      </svg>
-    ),
-  },
-  {
-    key: 'watch',
-    label: 'Watch',
-    path: '/watch',
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.862v6.276a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
-      </svg>
-    ),
-  },
-  {
-    key: 'rankings',
-    label: 'Rankings',
-    path: '/leaderboard',
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
-  },
-  {
-    key: 'profile',
-    label: 'Profile',
-    path: '/profile',
-    icon: (
-      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-      </svg>
-    ),
-  },
+  { key: 'home', label: 'Home', path: '/', icon: <HomeIcon /> },
+  { key: 'watch', label: 'Watch', path: '/watch', icon: <EyeIcon /> },
+  { key: 'rankings', label: 'Rankings', path: '/leaderboard', icon: <TrophyIcon /> },
+  { key: 'profile', label: 'Profile', path: '/profile', icon: <PersonCircleIcon /> },
 ];
 
-// Used inside match pages — tab-switcher variant (no routing)
+// Match tab icons
+const LiveIcon = () => (
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+  </svg>
+);
+
+const PieIcon = () => (
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
+  </svg>
+);
+
+const CardIcon = () => (
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="3" width="14" height="18" rx="2"/>
+    <path d="M9 8h6M9 12h6M9 16h4"/>
+  </svg>
+);
+
+const LayersIcon = () => (
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+    <path d="M2 17l10 5 10-5"/>
+    <path d="M2 12l10 5 10-5"/>
+  </svg>
+);
+
+const matchTabs = [
+  { key: 'score', label: 'Live', icon: <LiveIcon /> },
+  { key: 'stats', label: 'Stats', icon: <PieIcon /> },
+  { key: 'scorecard', label: 'Card', icon: <CardIcon /> },
+  { key: 'session', label: 'Session', icon: <LayersIcon /> },
+];
+
 interface MatchTabBarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
 }
-
-const matchTabs = [
-  { key: 'score', label: 'Live', icon: (
-    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-    </svg>
-  )},
-  { key: 'stats', label: 'Stats', icon: (
-    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-    </svg>
-  )},
-  { key: 'scorecard', label: 'Card', icon: (
-    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-    </svg>
-  )},
-  { key: 'session', label: 'Session', icon: (
-    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-    </svg>
-  )},
-];
 
 export function MatchTabBar({ activeTab, onTabChange }: MatchTabBarProps) {
   return (
@@ -90,8 +97,11 @@ export function MatchTabBar({ activeTab, onTabChange }: MatchTabBarProps) {
           className={`bnav-btn${activeTab === tab.key ? ' act' : ''}`}
           onClick={() => onTabChange(tab.key)}
           aria-label={tab.label}
+          style={activeTab === tab.key ? { color: 'var(--live)' } : { color: 'var(--muted)' }}
         >
-          <div className="pip">{tab.icon}</div>
+          <div className="pip" style={activeTab === tab.key ? { background: 'var(--live-lo)', borderRadius: '10px', padding: '4px 10px' } : {}}>
+            {tab.icon}
+          </div>
           {tab.label}
         </button>
       ))}
@@ -111,17 +121,23 @@ export default function BottomNavigation() {
 
   return (
     <nav className="bnav">
-      {navTabs.map(tab => (
-        <button
-          key={tab.key}
-          className={`bnav-btn${isActive(tab) ? ' act' : ''}`}
-          onClick={() => router.push(tab.path)}
-          aria-label={tab.label}
-        >
-          <div className="pip">{tab.icon}</div>
-          {tab.label}
-        </button>
-      ))}
+      {navTabs.map(tab => {
+        const active = isActive(tab);
+        return (
+          <button
+            key={tab.key}
+            className={`bnav-btn${active ? ' act' : ''}`}
+            onClick={() => router.push(tab.path)}
+            aria-label={tab.label}
+            style={active ? { color: 'var(--live)' } : { color: 'var(--muted)' }}
+          >
+            <div className="pip" style={active ? { background: 'var(--live-lo)', borderRadius: '10px', padding: '4px 10px' } : {}}>
+              {tab.icon}
+            </div>
+            {tab.label}
+          </button>
+        );
+      })}
     </nav>
   );
 }

@@ -63,7 +63,7 @@ export default function MatchCard({
         {progressPct !== undefined && <ProgressBar value={progressPct} />}
         {needRuns !== undefined && (
           <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--muted)', textAlign: 'center', background: 'var(--s2)', padding: '6px', borderRadius: '8px' }}>
-            Need <b style={{ color: '#fc8181' }}>{needRuns} runs in {needOvers} ov</b> · Tap to watch
+            Need <b style={{ color: 'var(--live)' }}>{needRuns} runs in {needOvers} ov</b> · Tap to watch
           </div>
         )}
       </div>

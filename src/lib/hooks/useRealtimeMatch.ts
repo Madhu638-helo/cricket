@@ -15,7 +15,11 @@ export interface RealtimeMatchData {
 }
 
 export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
-  const supabase = createClient();
+  // Memoize the client in a ref — createClient() must not be called on every render
+  // or it will cause the useEffect subscription to teardown/re-subscribe continuously.
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
+
   const [data, setData] = useState<RealtimeMatchData>({
     session: null, match: null, innings: [], balls: [], players: [], teams: [], loading: true, error: null,
   });
@@ -47,12 +51,14 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
     ]);
 
     setData({ session, match, innings: innings ?? [], balls: balls ?? [], players: players ?? [], teams: teams ?? [], loading: false, error: null });
-  }, [matchCode, supabase]);
+  }, [matchCode]);
 
   useEffect(() => {
     fetchInitial();
 
-    const channel = supabase.channel(`match:${matchCode}:${Date.now()}`)
+    // Use a stable channel name (no Date.now()) to avoid leaking channels on re-renders.
+    // Each unique matchCode gets exactly one Supabase realtime channel.
+    const channel = supabase.channel(`match:${matchCode}`)
       // Match status changes (pause, result, etc.) — refetch match row only
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
         (payload: any) => {
@@ -131,7 +137,7 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [matchCode, fetchInitial, supabase]);
+  }, [matchCode, fetchInitial]);
 
   return data;
 }

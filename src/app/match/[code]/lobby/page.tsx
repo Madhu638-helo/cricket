@@ -140,13 +140,13 @@ export default function LobbyPage({ params }: PageProps) {
   };
 
   // ── Touch drag (mobile) ──
-  const touchDragRef = useRef<{ playerId: string; el: HTMLElement; ghost: HTMLElement | null; startX: number; startY: number } | null>(null);
+  const touchDragRef = useRef<{ playerId: string; el: HTMLElement; ghost: HTMLElement | null; startX: number; startY: number; currentZone: string | null } | null>(null);
 
   const handleTouchStart = useCallback((e: React.TouchEvent, playerId: string) => {
     if (!isOwner) return;
     const touch = e.touches[0];
     const el = e.currentTarget as HTMLElement;
-    touchDragRef.current = { playerId, el, ghost: null, startX: touch.clientX, startY: touch.clientY };
+    touchDragRef.current = { playerId, el, ghost: null, startX: touch.clientX, startY: touch.clientY, currentZone: null };
   }, [isOwner]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
@@ -186,6 +186,8 @@ export default function LobbyPage({ params }: PageProps) {
         overZone = z.dataset.dropZone ?? null;
       }
     });
+    
+    td.currentZone = overZone;
     setDragOver(overZone);
   }, []);
 
@@ -195,12 +197,13 @@ export default function LobbyPage({ params }: PageProps) {
 
     if (td.ghost) {
       document.body.removeChild(td.ghost);
-      // Perform drop
-      if (dragOver) {
-        if (dragOver === 'unassigned') {
+      // Perform drop using the synchronously updated ref, avoiding React state race conditions
+      const finalZone = td.currentZone;
+      if (finalZone) {
+        if (finalZone === 'unassigned') {
           await supabase.from('players').update({ team_id: null, is_joker: false, is_captain: false }).eq('id', td.playerId);
-        } else if (dragOver.startsWith('team-')) {
-          const idx = parseInt(dragOver.split('-')[1]);
+        } else if (finalZone.startsWith('team-')) {
+          const idx = parseInt(finalZone.split('-')[1]);
           const teamId = teams[idx]?.id;
           if (teamId) {
             await supabase.from('players').update({ team_id: teamId, is_joker: false }).eq('id', td.playerId);
@@ -213,7 +216,7 @@ export default function LobbyPage({ params }: PageProps) {
     touchDragRef.current = null;
     setDragging(null);
     setDragOver(null);
-  }, [dragOver, teams, sessionId]);
+  }, [teams, sessionId]);
 
   // ── Role actions ──
   const assignRole = async (playerId: string, role: 'scorer' | 'joker' | 'captain') => {
@@ -335,13 +338,13 @@ export default function LobbyPage({ params }: PageProps) {
       <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
         {isOwner && (
-          <div style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: '#fcd34d' }}>
+          <div style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: 'var(--gold)' }}>
             <b>Drag & Drop</b> players to assign teams. Tap a player in a team to set Captain, Scorer, or Joker.
           </div>
         )}
 
         {team1.length !== team2.length && jokers.length === 0 && (
-          <div style={{ background: 'rgba(139,92,246,.08)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: '#c4b5fd' }}>
+          <div style={{ background: 'rgba(139,92,246,.08)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: 'var(--purple)' }}>
             <b>Teams are uneven!</b> Select a Joker player who can bat & bowl for both teams.
           </div>
         )}
@@ -391,7 +394,7 @@ export default function LobbyPage({ params }: PageProps) {
                         >
                           <button
                             onClick={() => assignRole(p.id, 'captain')}
-                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_captain ? 'var(--live)' : '#facc15', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_captain ? 'var(--live)' : 'var(--gold)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
                           >
                             👑 {p.is_captain ? 'Remove Captain' : 'Make Captain'}
                           </button>
@@ -403,7 +406,7 @@ export default function LobbyPage({ params }: PageProps) {
                           </button>
                           <button
                             onClick={() => assignRole(p.id, 'joker')}
-                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: p.is_joker ? 'var(--live)' : '#c4b5fd', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: p.is_joker ? 'var(--live)' : 'var(--purple)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
                           >
                             🃏 {p.is_joker ? 'Remove Joker' : 'Make Joker'}
                           </button>
@@ -436,7 +439,7 @@ export default function LobbyPage({ params }: PageProps) {
               {jokers.map(p => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(139,92,246,.1)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '20px', padding: '3px 10px' }}>
                   <Avatar name={p.name} size={18} />
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: '#c4b5fd' }}>{p.name}</span>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--purple)' }}>{p.name}</span>
                 </div>
               ))}
             </div>
@@ -478,7 +481,7 @@ export default function LobbyPage({ params }: PageProps) {
                   >
                     <button
                       onClick={() => assignRole(p.id, 'joker')}
-                      style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: '#c4b5fd', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+                      style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: 'var(--purple)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                       🃏 Make Joker
                     </button>
@@ -515,7 +518,7 @@ export default function LobbyPage({ params }: PageProps) {
                   Proceed to Toss →
                 </button>
                 {dateMsg && (
-                  <div style={{ textAlign: 'center', fontSize: '12px', color: '#fcd34d', fontFamily: 'Barlow, sans-serif', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '10px', padding: '8px 14px' }}>
+                  <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--gold)', fontFamily: 'Barlow, sans-serif', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '10px', padding: '8px 14px' }}>
                     📅 {dateMsg}
                   </div>
                 )}

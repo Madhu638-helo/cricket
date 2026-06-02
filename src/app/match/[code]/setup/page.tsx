@@ -72,10 +72,18 @@ export default function SetupPage({ params }: PageProps) {
 
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
+        {/* Toss Result Graphic */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '4px' }}>
+          <img src="/toss_coin.png" alt="Toss Coin" style={{ width: '80px', height: '80px', objectFit: 'contain', filter: 'drop-shadow(0 6px 16px rgba(0,0,0,0.6))' }} />
+          <div style={{ marginTop: '12px', fontSize: '13px', fontWeight: 800, color: 'var(--live)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            {battingTeamName} won the toss
+          </div>
+        </div>
+
         {/* Batting team */}
         <div className="card" style={{ padding: '14px', borderColor: 'rgba(227,27,35,.15)' }}>
-          <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
-            ⚡ <b style={{ color: 'var(--txt)' }}>{battingTeamName}</b> bat first
+          <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px', textAlign: 'center' }}>
+            ⚡ They will bat first
           </div>
 
           <div>

@@ -110,18 +110,21 @@ export async function POST(
         const battingTeamId = innings2?.team_id;
         const bowlingTeamId = match.team1_id === battingTeamId ? match.team2_id : match.team1_id;
 
-        // Prefetch team names in parallel — avoid inline awaits
-        const [{ data: battingTeamData }, { data: bowlingTeamData }] = await Promise.all([
+        // Prefetch team names + chasing team player count in parallel
+        const [{ data: battingTeamData }, { data: bowlingTeamData }, { count: chasingPlayerCount }] = await Promise.all([
           supabase.from('teams').select('name').eq('id', battingTeamId).single(),
           supabase.from('teams').select('name').eq('id', bowlingTeamId).single(),
+          supabase.from('players').select('id', { count: 'exact', head: true }).eq('team_id', battingTeamId).eq('session_id', session.id),
         ]);
+        // In cricket, a team can only lose (teamSize - 1) wickets before being all-out
+        const maxWickets = (chasingPlayerCount ?? 11) - 1;
 
         let result: string;
         let winnerId: string | null;
 
         if (team2Runs > team1Runs) {
-          const wicketsLeft = 10 - (innings2?.total_wickets ?? 0);
-          result = `${battingTeamData?.name ?? 'Batting team'} won by ${wicketsLeft} wickets`;
+          const wicketsLeft = maxWickets - (innings2?.total_wickets ?? 0);
+          result = `${battingTeamData?.name ?? 'Batting team'} won by ${wicketsLeft} wicket${wicketsLeft !== 1 ? 's' : ''}`;
           winnerId = battingTeamId!;
         } else if (team1Runs > team2Runs) {
           const runMargin = team1Runs - team2Runs;
@@ -161,7 +164,7 @@ export async function POST(
             const fielderWickets = matchBalls.filter((b: any) => b.is_wicket && b.fielder_id === p.id);
 
             const runs = pBalls.reduce((s: number, b: any) => s + (b.runs_off_bat || 0), 0);
-            const ballsFaced = pBalls.filter((b: any) => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+            const ballsFaced = pBalls.filter((b: any) => b.extra_type !== 'wide').length;
             const fours = pBalls.filter((b: any) => b.runs_off_bat === 4).length;
             const sixes = pBalls.filter((b: any) => b.runs_off_bat === 6).length;
             const isOut = matchBalls.some((b: any) => b.is_wicket && b.batsman_id === p.id);
@@ -458,15 +461,29 @@ export async function POST(
           if (b.is_wicket) totalWickets++;
         }
         
-        // Walk backwards to rebuild the active partnership
+        // Walk backwards to find where the current partnership started
+        // A new partnership begins on the ball AFTER a wicket falls
+        let partnershipStartIdx = 0; // default: no wickets → whole innings is one partnership
         for (let i = remainingBalls.length - 1; i >= 0; i--) {
+          if (remainingBalls[i].is_wicket) {
+            // The wicket ball itself belongs to the PREVIOUS partnership.
+            // Current partnership begins from the next ball.
+            partnershipStartIdx = i + 1;
+            break;
+          }
+        }
+        
+        // Walk FORWARD from the partnership start to accumulate correct stats
+        for (let i = partnershipStartIdx; i < remainingBalls.length; i++) {
           const b = remainingBalls[i];
           pRuns += b.runs_off_bat + b.extras;
           if (b.extra_type !== 'wide' && b.extra_type !== 'noball') pBalls++;
-          pBat1 = b.batsman_id;
-          pBat2 = b.non_striker_id === 'single' ? null : b.non_striker_id;
-          if (b.is_wicket) break;
         }
+        
+        // Identify the two batsmen from the last ball of the innings
+        const lastBall = remainingBalls[remainingBalls.length - 1];
+        pBat1 = lastBall.batsman_id;
+        pBat2 = lastBall.non_striker_id === 'single' ? null : (lastBall.non_striker_id ?? null);
       }
 
       // Update Innings

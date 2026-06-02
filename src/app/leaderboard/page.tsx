@@ -44,26 +44,24 @@ export default function LeaderboardPage() {
     <div id="s-leaderboard" className="screen" style={{ paddingBottom: '80px', overflowY: 'auto' }}>
 
       {/* Header */}
-      <div style={{ padding: '20px 20px 0' }}>
+      <div className="anim-fade-up" style={{ padding: '20px 20px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
           <div>
-            <div style={{ fontSize: '22px', fontWeight: 800 }}>Rankings</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <img src="/tournament_trophy.png" width="28" height="28" style={{ objectFit: 'contain' }} alt="" />
+              <div style={{ fontSize: '22px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', letterSpacing: '-0.5px' }}>Rankings</div>
+            </div>
             <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Global player leaderboard</div>
-          </div>
-          <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(227,27,35,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#e31b23" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-            </svg>
           </div>
         </div>
 
         {/* Category tabs */}
-        <div style={{ display: 'flex', background: 'var(--s1)', borderRadius: '12px', padding: '4px', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', background: 'var(--s1)', borderRadius: '12px', padding: '4px', marginBottom: '10px', border: '1px solid var(--border)' }}>
           {(['batting','bowling','allrounder'] as Category[]).map(c => (
             <button
               key={c}
               onClick={() => setCategory(c)}
-              style={{ flex: 1, padding: '10px', borderRadius: '10px', background: category === c ? '#1f1f1f' : 'transparent', color: category === c ? '#fff' : '#6b7280', border: 'none', fontSize: '13px', fontWeight: 700, cursor: 'pointer', transition: 'all .15s' }}
+              style={{ flex: 1, padding: '10px', borderRadius: '10px', background: category === c ? 'var(--s3)' : 'transparent', color: category === c ? 'var(--txt)' : 'var(--muted)', border: 'none', fontSize: '13px', fontWeight: 700, cursor: 'pointer', transition: 'all .15s', fontFamily: 'Barlow, sans-serif' }}
             >
               {c === 'allrounder' ? 'All-Round' : c.charAt(0).toUpperCase() + c.slice(1)}
             </button>
@@ -76,7 +74,7 @@ export default function LeaderboardPage() {
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              style={{ background: period === p ? '#e31b23' : 'rgba(255,255,255,.07)', color: period === p ? '#fff' : '#9ca3af', border: 'none', borderRadius: '20px', padding: '6px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .15s' }}
+              className={`pill${period === p ? ' on' : ''}`}
             >
               {periodLabels[p]}
             </button>
@@ -86,13 +84,15 @@ export default function LeaderboardPage() {
 
       <div style={{ padding: '0 20px' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--dim)' }}>Loading rankings…</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {[1,2,3,4,5].map(i => (
+              <div key={i} className="skel" style={{ height: '60px', borderRadius: '12px' }} />
+            ))}
+          </div>
         ) : players.length === 0 ? (
           <div style={{ background: 'var(--s1)', borderRadius: '16px', padding: '40px', textAlign: 'center', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '32px', marginBottom: '12px', color: 'var(--muted)' }}>
-              <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto', display: 'block' }}>
-                <path strokeLinecap="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
-              </svg>
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
+              <img src="/empty_state_pitch.png" width="80" height="80" style={{ objectFit: 'contain', opacity: 0.7 }} alt="" />
             </div>
             <div style={{ fontWeight: 700, marginBottom: '8px' }}>No Rankings Yet</div>
             <div style={{ fontSize: '13px', color: 'var(--dim)', marginBottom: '16px' }}>Play matches to appear here</div>
@@ -104,18 +104,18 @@ export default function LeaderboardPage() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="anim-fade-up" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {/* Top 3 podium */}
             {players.length >= 3 && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                 {[players[1], players[0], players[2]].map((p, i) => {
                   const podiumOrder = [2, 1, 3];
                   const heights = ['80px', '100px', '70px'];
-                  const colors = ['#9ca3af', '#e31b23', '#d97706'];
+                  const colors = ['var(--muted)', 'var(--red)', 'var(--amber)'];
                   return (
                     <div
                       key={p.userId}
-                      style={{ background: p.isMe ? 'rgba(227,27,35,.15)' : '#111', borderRadius: '12px', padding: '12px 8px', textAlign: 'center', border: `1px solid ${p.isMe ? '#e31b23' : '#1f1f1f'}`, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: heights[i] }}
+                      style={{ background: p.isMe ? 'var(--red-lo)' : 'var(--s1)', borderRadius: '12px', padding: '12px 8px', textAlign: 'center', border: `1px solid ${p.isMe ? 'var(--red)' : 'var(--border)'}`, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minHeight: heights[i] }}
                     >
                       <div style={{ fontSize: '10px', fontWeight: 800, color: colors[i], marginBottom: '4px' }}>#{podiumOrder[i]}</div>
                       <div style={{ fontSize: '12px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
@@ -130,7 +130,7 @@ export default function LeaderboardPage() {
             {players.slice(3).map(p => (
               <div
                 key={p.userId}
-                style={{ background: p.isMe ? 'rgba(227,27,35,.1)' : '#111', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${p.isMe ? 'rgba(227,27,35,.3)' : '#1f1f1f'}` }}
+                style={{ background: p.isMe ? 'var(--red-lo)' : 'var(--s1)', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', border: `1px solid ${p.isMe ? 'rgba(227,27,35,.3)' : 'var(--border)'}` }}
               >
                 <div style={{ width: '28px', fontSize: '14px', fontWeight: 800, color: 'var(--dim)', textAlign: 'center', flexShrink: 0 }}>
                   {MEDAL[p.rank] || `#${p.rank}`}
@@ -143,7 +143,7 @@ export default function LeaderboardPage() {
                   {p.secondary && <div style={{ fontSize: '11px', color: 'var(--dim)', marginTop: '2px' }}>{p.secondary}</div>}
                   {p.meta && <div style={{ fontSize: '10px', color: 'var(--dim)', marginTop: '1px' }}>{p.meta}</div>}
                 </div>
-                <div style={{ fontSize: '15px', fontWeight: 800, color: '#fff', flexShrink: 0 }}>{p.value}</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--txt)', flexShrink: 0 }}>{p.value}</div>
               </div>
             ))}
           </div>
