@@ -12,6 +12,8 @@ import { MatchTabBar } from '@/components/nav/BottomTabBar';
 import WicketSheet from '@/components/sheets/WicketSheet';
 import PlayerSelectSheet from '@/components/sheets/PlayerSelectSheet';
 import InningsBreakSheet from '@/components/sheets/InningsBreakSheet';
+import TransferScorerSheet from '@/components/sheets/TransferScorerSheet';
+import AssignPlayersSheet from '@/components/sheets/AssignPlayersSheet';
 import BattingTable from '@/components/scorecard/BattingTable';
 import BowlingTable from '@/components/scorecard/BowlingTable';
 import SessionStandings from '@/components/scorecard/SessionStandings';
@@ -40,6 +42,8 @@ export default function MatchPage({ params }: PageProps) {
   const [showBatsman, setShowBatsman] = useState(false);
   const [showNonStriker, setShowNonStriker] = useState(false);
   const [showInningsBreak, setShowInningsBreak] = useState(false);
+  const [showTransferScorer, setShowTransferScorer] = useState(false);
+  const [showAssignPlayers, setShowAssignPlayers] = useState(false);
 
   // Overlays
   const [showSixOverlay, setShowSixOverlay] = useState(false);
@@ -155,6 +159,7 @@ export default function MatchPage({ params }: PageProps) {
   // Teams
   const team1 = players.filter(p => p.team_id === match?.team1_id);
   const team2 = players.filter(p => p.team_id === match?.team2_id);
+  const unassignedPlayers = players.filter(p => p.team_id === null && !p.is_joker);
   const jokerPlayers = players.filter(p => p.is_joker);
   const battingPlayers = currentInnings ? [...players.filter(p => p.team_id === currentInnings.team_id && !p.is_joker), ...jokerPlayers] : [];
   const bowlingTeamId = currentInnings
@@ -234,6 +239,37 @@ export default function MatchPage({ params }: PageProps) {
       showToast('Failed to submit over', 'error');
       setSubmittedTotal(null);
       setPendingBalls([]);
+    }
+  };
+
+  const handleTransferScorer = async (newScorerId: string) => {
+    try {
+      const myPlayerId = players.find(p => p.user_id === session?.owner_id || p.is_scorer)?.id; // actually we just need my ID
+      const me = players.find(p => p.is_scorer && p.team_id === currentInnings?.team_id);
+      if (!me) return;
+      await fetch(`/api/match/${code}/action`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'transfer_scorer', data: { currentScorerId: me.id, newScorerId } }),
+      });
+      setShowTransferScorer(false);
+      showToast('Scorer role transferred', 'success');
+      // The real-time subscription will update `isScorer` to false
+    } catch (e) {
+      showToast('Failed to transfer scorer role', 'error');
+    }
+  };
+
+  const handleAssignPlayer = async (playerId: string, teamId: string) => {
+    try {
+      await fetch(`/api/match/${code}/action`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'assign_player', data: { playerId, teamId } }),
+      });
+      showToast('Player assigned to team', 'success');
+      // If no more unassigned players, close the sheet
+      if (unassignedPlayers.length <= 1) setShowAssignPlayers(false);
+    } catch (e) {
+      showToast('Failed to assign player', 'error');
     }
   };
 
@@ -513,6 +549,25 @@ export default function MatchPage({ params }: PageProps) {
           </div>
         )}
 
+        {/* Assign Players Banner (Owner Only) */}
+        {isOwner && unassignedPlayers.length > 0 && match.status !== 'result' && (
+          <div style={{ margin: '16px 16px 8px', background: 'rgba(249,115,22,.1)', border: '1px solid rgba(249,115,22,.3)', borderRadius: '14px', padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ fontSize: '20px' }}>👋</div>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--gold)' }}>{unassignedPlayers.length} Player{unassignedPlayers.length > 1 ? 's' : ''} joined</div>
+                <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Waiting to be assigned</div>
+              </div>
+            </div>
+            <button 
+              onClick={() => setShowAssignPlayers(true)}
+              style={{ background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+            >
+              Assign
+            </button>
+          </div>
+        )}
+
         {/* Pause/Resume for owner during active play */}
         {isOwner && match.status !== 'result' && match.status !== 'setup' && (
           <div style={{ padding: '0 16px 8px', display: 'flex', gap: '8px' }}>
@@ -598,6 +653,14 @@ export default function MatchPage({ params }: PageProps) {
               {/* Scoring pad (scorer only) */}
               {isScorer && currentInnings?.status === 'active' && match.status !== 'result' && (
                 <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-4px' }}>
+                    <button 
+                      onClick={() => setShowTransferScorer(true)}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--blue)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', padding: '4px' }}
+                    >
+                      ⇄ Handover Scorer
+                    </button>
+                  </div>
                   <ScoringPad
                     onScore={handleScore}
                     onWicket={handleWicket}
@@ -861,6 +924,24 @@ export default function MatchPage({ params }: PageProps) {
           }}
         />
       )}
+
+      {/* Transfer Scorer Sheet */}
+      <TransferScorerSheet
+        isOpen={showTransferScorer}
+        onClose={() => setShowTransferScorer(false)}
+        teamPlayers={players.filter(p => p.team_id === currentInnings?.team_id)}
+        currentScorerId={players.find(p => p.user_id === session?.owner_id || p.is_scorer)?.id || ''} // Using ID directly, wait... Actually we just need current scorer id
+        onTransfer={handleTransferScorer}
+      />
+
+      {/* Assign Players Sheet */}
+      <AssignPlayersSheet
+        isOpen={showAssignPlayers}
+        onClose={() => setShowAssignPlayers(false)}
+        unassignedPlayers={unassignedPlayers}
+        teams={teamsFromDb}
+        onAssign={handleAssignPlayer}
+      />
     </ErrorBoundary>
   );
 }

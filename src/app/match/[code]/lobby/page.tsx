@@ -31,6 +31,11 @@ export default function LobbyPage({ params }: PageProps) {
   const [sessionId, setSessionId] = useState('');
   const [matchDate, setMatchDate] = useState<string | null>(null);
   const [matchTime, setMatchTime] = useState<string | null>(null);
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const [showDateEdit, setShowDateEdit] = useState(false);
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [savingDate, setSavingDate] = useState(false);
 
   // Drag state
   const [dragging, setDragging] = useState<string | null>(null); // player id being dragged
@@ -56,6 +61,13 @@ export default function LobbyPage({ params }: PageProps) {
         event: '*', schema: 'public', table: 'players',
         filter: `session_id=eq.${sessionId}`
       }, () => loadPlayers(sessionId))
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'teams',
+        filter: `session_id=eq.${sessionId}`
+      }, async () => {
+        const { data: t } = await supabase.from('teams').select('*').eq('session_id', sessionId);
+        setTeams(t ?? []);
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [sessionId]);
@@ -85,13 +97,16 @@ export default function LobbyPage({ params }: PageProps) {
     const [{ data: t }, { data: p }, { data: matchData }] = await Promise.all([
       supabase.from('teams').select('*').eq('session_id', sess.id),
       supabase.from('players').select('*').eq('session_id', sess.id),
-      supabase.from('matches').select('match_date,match_time').eq('session_id', sess.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('matches').select('id,match_date,match_time').eq('session_id', sess.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     setTeams(t ?? []);
     setPlayers(p ?? []);
     if (matchData) {
+      setMatchId(matchData.id ?? null);
       setMatchDate(matchData.match_date ?? null);
       setMatchTime(matchData.match_time ?? null);
+      setEditDate(matchData.match_date ?? '');
+      setEditTime(matchData.match_time ?? '');
     }
     setLoading(false);
 
@@ -237,6 +252,19 @@ export default function LobbyPage({ params }: PageProps) {
   };
   const saveTeamName = async (teamId: string, name: string) => {
     await supabase.from('teams').update({ name }).eq('id', teamId);
+  };
+
+  const saveMatchDateTime = async () => {
+    if (!matchId) return;
+    setSavingDate(true);
+    await supabase.from('matches').update({
+      match_date: editDate || null,
+      match_time: editTime || null,
+    }).eq('id', matchId);
+    setMatchDate(editDate || null);
+    setMatchTime(editTime || null);
+    setSavingDate(false);
+    setShowDateEdit(false);
   };
 
   const shareLink = () => {
@@ -492,6 +520,84 @@ export default function LobbyPage({ params }: PageProps) {
           </div>
         </div>
 
+        {/* Date / Time Card */}
+        <div className="card" style={{ padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showDateEdit ? '12px' : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '18px' }}>📅</span>
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Match Schedule</div>
+                {matchDate ? (
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--txt)', marginTop: '2px' }}>
+                    {new Date(matchDate).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                    {matchTime && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {matchTime}</span>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '13px', color: 'var(--dim)', marginTop: '2px' }}>No date set</div>
+                )}
+              </div>
+            </div>
+            {isOwner && (
+              <button
+                onClick={() => { setShowDateEdit(!showDateEdit); setEditDate(matchDate ?? ''); setEditTime(matchTime ?? ''); }}
+                style={{ background: showDateEdit ? 'rgba(239,68,68,.1)' : 'var(--s2)', border: `1px solid ${showDateEdit ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, color: showDateEdit ? 'var(--red)' : 'var(--muted)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                {showDateEdit ? 'Cancel' : '✏️ Edit'}
+              </button>
+            )}
+          </div>
+
+          {isOwner && showDateEdit && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Date</div>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={e => setEditDate(e.target.value)}
+                    className="inp"
+                    style={{ fontSize: '14px', padding: '10px', width: '100%', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Time</div>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={e => setEditTime(e.target.value)}
+                    className="inp"
+                    style={{ fontSize: '14px', padding: '10px', width: '100%', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={saveMatchDateTime}
+                  disabled={savingDate}
+                  className="btn btn-red"
+                  style={{ flex: 1, padding: '10px', fontSize: '13px', opacity: savingDate ? 0.6 : 1 }}
+                >
+                  {savingDate ? 'Saving…' : '✓ Save Schedule'}
+                </button>
+                {(matchDate || matchTime) && (
+                  <button
+                    onClick={async () => {
+                      setEditDate(''); setEditTime('');
+                      await supabase.from('matches').update({ match_date: null, match_time: null }).eq('id', matchId!);
+                      setMatchDate(null); setMatchTime(null);
+                      setShowDateEdit(false);
+                    }}
+                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Actions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {isOwner && (() => {
@@ -504,7 +610,7 @@ export default function LobbyPage({ params }: PageProps) {
               const matchStr = mDate.toISOString().slice(0, 10);
               if (todayStr < matchStr) {
                 canStart = false;
-                dateMsg = `Match scheduled for ${mDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}`;
+                dateMsg = `Scheduled for ${mDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}${matchTime ? ' at ' + matchTime : ''}`;
               }
             }
             return (
@@ -519,7 +625,7 @@ export default function LobbyPage({ params }: PageProps) {
                 </button>
                 {dateMsg && (
                   <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--gold)', fontFamily: 'Barlow, sans-serif', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '10px', padding: '8px 14px' }}>
-                    📅 {dateMsg}
+                    🕐 {dateMsg}
                   </div>
                 )}
               </>

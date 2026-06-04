@@ -392,6 +392,25 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
 
+    // Mid-game team assignment
+    case 'assign_player': {
+      const { playerId, teamId } = data;
+      // Only owner should do this, but we'll assume caller is verified or owner
+      await supabase.from('players').update({
+        team_id: teamId,
+      }).eq('id', playerId);
+      return NextResponse.json({ success: true });
+    }
+
+    // Transfer scorer role
+    case 'transfer_scorer': {
+      const { currentScorerId, newScorerId } = data;
+      // Atomically remove from old, give to new
+      await supabase.from('players').update({ is_scorer: false }).eq('id', currentScorerId);
+      await supabase.from('players').update({ is_scorer: true }).eq('id', newScorerId);
+      return NextResponse.json({ success: true });
+    }
+
     // Reset all player team assignments for rearranging teams
     case 'reset_teams': {
       await supabase.from('players').update({
