@@ -232,12 +232,18 @@ export function detectMilestone(
     }
   }
 
-  // Hat-trick: 3 consecutive wickets by same bowler
+  // Hat-trick: 3 CONSECUTIVE wicket deliveries by same bowler
   if (newBall.is_wicket && newBall.wicket_type !== 'runout' && newBall.wicket_type !== 'retiredhurt') {
     const bowlerWickets = prevBalls
       .filter(b => b.bowler_id === newBall.bowler_id && b.is_wicket && b.wicket_type !== 'runout')
-      .slice(-2);
-    if (bowlerWickets.length === 2) {
+      .sort((a, b) => a.delivery_number - b.delivery_number);
+    const last2 = bowlerWickets.slice(-2);
+    // Require all 3 deliveries to be consecutive (delivery_number forms a contiguous run)
+    if (
+      last2.length === 2 &&
+      last2[1].delivery_number === last2[0].delivery_number + 1 &&
+      newBall.delivery_number === last2[1].delivery_number + 1
+    ) {
       const bowlerPlayer = players.find(p => p.id === newBall.bowler_id);
       return { type: 'hatTrick', player: bowlerPlayer?.name ?? 'Bowler' };
     }

@@ -157,8 +157,9 @@ export async function POST(
           const bowlingMap = new Map((allBowling ?? []).map((r: any) => [r.user_id, r]));
           const fieldingMap = new Map((allFielding ?? []).map((r: any) => [r.user_id, r]));
 
-          for (const p of matchPlayers) {
-            if (!p.user_id) continue;
+          // Run all player stat updates in parallel — each player is independent
+          await Promise.all(matchPlayers.map(async (p: any) => {
+            if (!p.user_id) return;
             const pBalls = matchBalls.filter((b: any) => b.batsman_id === p.id);
             const bowledBalls = matchBalls.filter((b: any) => b.bowler_id === p.id);
             const fielderWickets = matchBalls.filter((b: any) => b.is_wicket && b.fielder_id === p.id);
@@ -172,6 +173,11 @@ export async function POST(
             const legalBowled = bowledBalls.filter((b: any) => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
             const runsGiven = bowledBalls.reduce((s: number, b: any) => s + (b.runs_off_bat || 0) + (b.extras || 0), 0);
             const wicketsTaken = bowledBalls.filter((b: any) => b.is_wicket && b.wicket_type !== 'runout').length;
+
+            // 5-wkt haul counted per innings, not per match total
+            const wktInn1 = bowledBalls.filter((b: any) => b.is_wicket && b.wicket_type !== 'runout' && b.innings_id === innings1?.id).length;
+            const wktInn2 = bowledBalls.filter((b: any) => b.is_wicket && b.wicket_type !== 'runout' && b.innings_id === innings2?.id).length;
+            const fiveWktHaulInMatch = (wktInn1 >= 5 ? 1 : 0) + (wktInn2 >= 5 ? 1 : 0);
 
             // Maiden detection per bowler
             const overGroups = new Map<number, any[]>();
@@ -246,7 +252,7 @@ export async function POST(
                   wickets: newWkts,
                   maidens: existing.maidens + maidensThisMatch,
                   economy: totalBalls > 0 ? Math.round((newRuns / (totalBalls / 6)) * 100) / 100 : 0,
-                  five_wkt_hauls: existing.five_wkt_hauls + (wicketsTaken >= 5 ? 1 : 0),
+                  five_wkt_hauls: existing.five_wkt_hauls + fiveWktHaulInMatch,
                   best_figures: bestFig,
                   strike_rate: newWkts > 0 ? Math.round((totalBalls / newWkts) * 10) / 10 : 0,
                   updated_at: new Date().toISOString(),
@@ -257,7 +263,7 @@ export async function POST(
                   runs_conceded: runsGiven, wickets: wicketsTaken,
                   maidens: maidensThisMatch,
                   economy: legalBowled > 0 ? Math.round((runsGiven / (legalBowled / 6)) * 100) / 100 : 0,
-                  five_wkt_hauls: wicketsTaken >= 5 ? 1 : 0,
+                  five_wkt_hauls: fiveWktHaulInMatch,
                   best_figures: wicketsTaken > 0 ? `${wicketsTaken}/${runsGiven}` : '-',
                   strike_rate: wicketsTaken > 0 ? Math.round((legalBowled / wicketsTaken) * 10) / 10 : 0,
                 });
@@ -280,7 +286,7 @@ export async function POST(
                 await supabase.from('fielding_career_stats').insert({ user_id: p.user_id, catches, run_outs: runOuts, stumpings });
               }
             }
-          }
+          }));
         }
 
         return NextResponse.json({ success: true, result, matchOver: true });
@@ -499,10 +505,19 @@ export async function POST(
           if (b.extra_type !== 'wide' && b.extra_type !== 'noball') pBalls++;
         }
         
-        // Identify the two batsmen from the last ball of the innings
+        // Identify the two batsmen from the last ball of the innings.
+        // If the last remaining ball is a wicket, that batsman is dismissed.
+        // The surviving batsman (non_striker) becomes pBat1; pBat2 unknown (selected in undone over).
         const lastBall = remainingBalls[remainingBalls.length - 1];
-        pBat1 = lastBall.batsman_id;
-        pBat2 = lastBall.non_striker_id === 'single' ? null : (lastBall.non_striker_id ?? null);
+        if (lastBall.is_wicket) {
+          pBat1 = lastBall.non_striker_id && lastBall.non_striker_id !== 'single'
+            ? lastBall.non_striker_id
+            : lastBall.batsman_id;
+          pBat2 = null;
+        } else {
+          pBat1 = lastBall.batsman_id;
+          pBat2 = lastBall.non_striker_id === 'single' ? null : (lastBall.non_striker_id ?? null);
+        }
       }
 
       // Update Innings

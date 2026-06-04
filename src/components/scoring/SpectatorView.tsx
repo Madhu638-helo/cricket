@@ -120,6 +120,7 @@ export default function SpectatorView({
   const currentInnings = inningsList.find(i => i.status === 'active') ?? inningsList[inningsList.length - 1] ?? null;
   const [activeInningsId, setActiveInningsId] = useState<string>(currentInnings?.id || '');
   const [activeTab, setActiveTab] = useState<'live' | 'stats' | 'scorecard'>('live');
+  const [playAgainOvers, setPlayAgainOvers] = useState<number>(0); // 0 = inherit from match
   const feedRef = useRef<HTMLDivElement>(null);
 
   // Keep activeInningsId in sync when new innings starts
@@ -248,11 +249,27 @@ export default function SpectatorView({
           <div style={{ fontSize: '1.5rem', marginBottom: '6px' }}>🏆</div>
           <p style={{ color: '#22c55e', fontWeight: 800, fontSize: '15px', fontFamily: 'Barlow, sans-serif', marginBottom: '14px' }}>{match.result}</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Overs picker for the next match */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,.05)', borderRadius: '10px', padding: '8px 12px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 600, fontFamily: 'Barlow, sans-serif', flex: 1 }}>Overs</span>
+              {[3, 5, 6, 8, 10, 15, 20].map(n => (
+                <button
+                  key={n}
+                  onClick={() => setPlayAgainOvers(n)}
+                  style={{
+                    width: '30px', height: '26px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: (playAgainOvers || match.overs) === n ? '#e31b23' : 'rgba(255,255,255,.08)',
+                    color: (playAgainOvers || match.overs) === n ? '#fff' : 'var(--muted)',
+                    fontFamily: 'Barlow, sans-serif',
+                  }}
+                >{n}</button>
+              ))}
+            </div>
             <button
               onClick={async () => {
                 const res = await fetch(`/api/match/${code}/action`, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'new_match', data: { overs: match.overs, team1Id: match.team1_id, team2Id: match.team2_id, matchNumber: inningsList.length > 0 ? Math.ceil(inningsList.length / 2) + 1 : 2 }}),
+                  body: JSON.stringify({ action: 'new_match', data: { overs: playAgainOvers || match.overs, team1Id: match.team1_id, team2Id: match.team2_id, matchNumber: inningsList.length > 0 ? Math.ceil(inningsList.length / 2) + 1 : 2 }}),
                 });
                 if (res.ok) router.push(`/match/${code}/toss`);
               }}

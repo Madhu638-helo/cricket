@@ -12,6 +12,8 @@ export interface RealtimeMatchData {
   teams: Team[];
   loading: boolean;
   error: string | null;
+  /** Broadcast live score update to all viewers (scorer calls this per ball) */
+  sendScoreUpdate: (inningsId: string, runs: number, wickets: number, balls: number) => void;
 }
 
 export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
@@ -19,8 +21,9 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
   // or it will cause the useEffect subscription to teardown/re-subscribe continuously.
   const supabaseRef = useRef(createClient());
   const supabase = supabaseRef.current;
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const [data, setData] = useState<RealtimeMatchData>({
+  const [data, setData] = useState<Omit<RealtimeMatchData, 'sendScoreUpdate'>>({
     session: null, match: null, innings: [], balls: [], players: [], teams: [], loading: true, error: null,
   });
   const sessionIdRef = useRef<string>('');
@@ -59,6 +62,24 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
     // Use a stable channel name (no Date.now()) to avoid leaking channels on re-renders.
     // Each unique matchCode gets exactly one Supabase realtime channel.
     const channel = supabase.channel(`match:${matchCode}`)
+      // Per-ball score broadcast from scorer — updates innings totals instantly for all viewers
+      .on('broadcast', { event: 'score_update' }, (payload: any) => {
+        const { innings_id, runs, wickets, balls } = payload.payload ?? {};
+        if (!innings_id) return;
+        setData(prev => ({
+          ...prev,
+          innings: prev.innings.map(i =>
+            i.id === innings_id
+              ? {
+                  ...i,
+                  total_runs: Math.max(i.total_runs, runs),
+                  total_wickets: Math.max(i.total_wickets, wickets),
+                  total_balls: Math.max(i.total_balls, balls),
+                }
+              : i
+          ),
+        }));
+      })
       // Match status changes (pause, result, etc.) — refetch match row only
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
         (payload: any) => {
@@ -94,7 +115,7 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
         (payload: any) => {
           if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
           const { new_balls, innings_update, reload_balls } = payload.new.data || {};
-          
+
           if (reload_balls) {
             fetchInitial();
             return;
@@ -102,7 +123,7 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
 
           setData(prev => {
             let nextState = { ...prev };
-            
+
             // Handle bulk balls
             if (new_balls && Array.isArray(new_balls)) {
               const inningsIds = prev.innings.map(i => i.id);
@@ -116,9 +137,16 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
 
             // Sync innings instantly
             if (innings_update && innings_update.id) {
-              nextState.innings = nextState.innings.map(i => 
+              nextState.innings = nextState.innings.map(i =>
                 i.id === innings_update.id ? { ...i, ...innings_update } as Innings : i
               );
+              // Gap detection: if DB says more legal balls than we have, a batch was lost
+              // (race condition when two overs submit in quick succession).
+              const ourBalls = nextState.balls.filter(b => b.innings_id === innings_update.id).length;
+              if (innings_update.total_balls > ourBalls) {
+                // Defer fetchInitial outside of setData callback
+                setTimeout(() => fetchInitial(), 50);
+              }
             }
 
             return nextState;
@@ -136,8 +164,17 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
         })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    channelRef.current = channel;
+    return () => { supabase.removeChannel(channel); channelRef.current = null; };
   }, [matchCode, fetchInitial]);
 
-  return data;
+  const sendScoreUpdate = useCallback((inningsId: string, runs: number, wickets: number, balls: number) => {
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'score_update',
+      payload: { innings_id: inningsId, runs, wickets, balls },
+    });
+  }, []);
+
+  return { ...data, sendScoreUpdate };
 }

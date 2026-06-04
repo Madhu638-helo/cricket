@@ -56,8 +56,10 @@ export default function MatchPage({ params }: PageProps) {
   const [pendingBalls, setPendingBalls] = useState<any[]>([]);
   const [submittedTotal, setSubmittedTotal] = useState<{ runs: number; balls: number; wickets: number } | null>(null);
   const [innings1Target, setInnings1Target] = useState<number>(0);
+  const [previousOverBowlerId, setPreviousOverBowlerId] = useState<string>('');
+  const [playAgainOvers, setPlayAgainOvers] = useState<number>(0); // 0 = inherit from match
 
-  const { session, match, innings, balls, players, teams: teamsFromDb, loading, error } = useRealtimeMatch(code);
+  const { session, match, innings, balls, players, teams: teamsFromDb, loading, error, sendScoreUpdate } = useRealtimeMatch(code);
 
   // Auto-close: if match started but still 'active' >30min past expected end, call close action
   useEffect(() => {
@@ -228,6 +230,7 @@ export default function MatchPage({ params }: PageProps) {
           if (actionData.target) setInnings1Target(actionData.target);
           setShowInningsBreak(true);
         } else {
+          setPreviousOverBowlerId(bowlerId); // track for consecutive-over warning
           setShowBowler(true);
         }
       } else {
@@ -306,8 +309,21 @@ export default function MatchPage({ params }: PageProps) {
     const newPending = [...pendingBalls, newBall];
     setPendingBalls(newPending);
 
-    // Strike rotation locally for UX
-    const shouldRotate = !isExtra && payload.runs_off_bat % 2 === 1;
+    // Broadcast live score to all viewers per ball
+    if (currentInnings) {
+      const totalPR = newPending.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
+      const totalPW = newPending.filter(b => b.is_wicket).length;
+      const totalPL = newPending.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+      sendScoreUpdate(
+        currentInnings.id,
+        currentInnings.total_runs + totalPR,
+        currentInnings.total_wickets + totalPW,
+        currentInnings.total_balls + totalPL,
+      );
+    }
+
+    // Strike rotation — no-ball rotates on odd bat runs (unlike wide, which never rotates)
+    const shouldRotate = payload.extra_type !== 'wide' && payload.runs_off_bat % 2 === 1;
     let nextStriker = strikerId;
     let nextNonStriker = nonStrikerId;
 
@@ -369,8 +385,8 @@ export default function MatchPage({ params }: PageProps) {
     const newPending = pendingBalls.slice(0, -1);
     setPendingBalls(newPending);
     // Reverse strike rotation
-    const wasExtra = popped.extra_type === 'wide' || popped.extra_type === 'noball';
-    const didRotate = !wasExtra && (popped.runs_off_bat ?? 0) % 2 === 1 && nonStrikerId !== 'single';
+    // Mirror the shouldRotate logic: wide never rotates, no-ball rotates on odd bat runs
+    const didRotate = popped.extra_type !== 'wide' && (popped.runs_off_bat ?? 0) % 2 === 1 && nonStrikerId !== 'single';
     if (didRotate) {
       setStrikerId(nonStrikerId);
       setNonStrikerId(strikerId);
@@ -502,12 +518,27 @@ export default function MatchPage({ params }: PageProps) {
             </p>
             {isOwner && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {/* Overs picker for the next match */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,.05)', borderRadius: '10px', padding: '10px 14px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--muted)', fontWeight: 600, flex: 1 }}>Overs next match</span>
+                  {[3, 5, 6, 8, 10, 15, 20].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setPlayAgainOvers(n)}
+                      style={{
+                        width: '34px', height: '28px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', border: 'none',
+                        background: (playAgainOvers || match.overs) === n ? '#e31b23' : 'rgba(255,255,255,.08)',
+                        color: (playAgainOvers || match.overs) === n ? '#fff' : 'var(--muted)',
+                      }}
+                    >{n}</button>
+                  ))}
+                </div>
                 <button
                   onClick={async () => {
                     const res = await fetch(`/api/match/${code}/action`, {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ action: 'new_match', data: {
-                        overs: match.overs,
+                        overs: playAgainOvers || match.overs,
                         team1Id: match.team1_id,
                         team2Id: match.team2_id,
                         matchNumber: innings.length > 0 ? Math.ceil(innings.length / 2) + 1 : 2,
@@ -653,10 +684,30 @@ export default function MatchPage({ params }: PageProps) {
               {/* Scoring pad (scorer only) */}
               {isScorer && currentInnings?.status === 'active' && match.status !== 'result' && (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-4px' }}>
-                    <button 
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '-4px' }}>
+                    {/* Undo last committed over — only available between overs */}
+                    {pendingBalls.length === 0 && overHistory.length > 0 && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Undo the entire last over? This will delete those balls and recalculate the score.')) return;
+                          try {
+                            await fetch(`/api/match/${code}/action`, {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'undo_last_over', data: { inningsId: currentInnings?.id, matchId: match?.id } }),
+                            });
+                            showToast('Last over undone', 'info');
+                          } catch {
+                            showToast('Failed to undo last over', 'error');
+                          }
+                        }}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', padding: '4px' }}
+                      >
+                        ↩ Undo Last Over
+                      </button>
+                    )}
+                    <button
                       onClick={() => setShowTransferScorer(true)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--blue)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', padding: '4px' }}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--blue)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', padding: '4px', marginLeft: 'auto' }}
                     >
                       ⇄ Handover Scorer
                     </button>
@@ -873,12 +924,17 @@ export default function MatchPage({ params }: PageProps) {
       <PlayerSelectSheet
         open={showBowler}
         onClose={() => setShowBowler(false)}
-        onSelect={id => setBowlerId(id)}
+        onSelect={id => {
+          if (id === previousOverBowlerId) {
+            showToast('⚠️ Same bowler — consecutive overs!', 'error', 3000);
+          }
+          setBowlerId(id);
+        }}
         players={bowlingPlayers}
         title="Select Bowler"
         excludeIds={[]}
-        featuredId={bowlerId}
-        featuredLabel="PREV"
+        featuredId={previousOverBowlerId || bowlerId}
+        featuredLabel="PREV OVER"
       />
 
       {/* Overlays */}
