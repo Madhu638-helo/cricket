@@ -9,6 +9,7 @@ import ScoreHeader from '@/components/scoring/ScoreHeader';
 import FallOfWickets from '@/components/scoring/FallOfWickets';
 import ManhattanChart from '@/components/scoring/ManhattanChart';
 import WormGraph from '@/components/scoring/WormGraph';
+import ManageTeamsSheet from '@/components/sheets/ManageTeamsSheet';
 import { useRouter } from 'next/navigation';
 
 interface SpectatorViewProps {
@@ -121,6 +122,7 @@ export default function SpectatorView({
   const [activeInningsId, setActiveInningsId] = useState<string>(currentInnings?.id || '');
   const [activeTab, setActiveTab] = useState<'live' | 'stats' | 'scorecard'>('live');
   const [playAgainOvers, setPlayAgainOvers] = useState<number>(0); // 0 = inherit from match
+  const [showManageTeams, setShowManageTeams] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   // Keep activeInningsId in sync when new innings starts
@@ -215,7 +217,7 @@ export default function SpectatorView({
 
       {/* Owner admin controls */}
       {isOwner && code && match.status !== 'result' && (
-        <div style={{ margin: '8px 14px 0', display: 'flex', gap: '8px' }}>
+        <div style={{ margin: '8px 14px 0', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             onClick={async () => {
               await fetch(`/api/match/${code}/action`, {
@@ -226,6 +228,18 @@ export default function SpectatorView({
             style={{ flex: 1, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: 'var(--muted)', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
           >
             {match.is_paused ? '▶ Resume' : '⏸ Pause'}
+          </button>
+          <button
+            onClick={() => setShowManageTeams(true)}
+            style={{ background: 'rgba(10,132,255,.08)', border: '1px solid rgba(10,132,255,.2)', color: 'var(--blue)', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+          >
+            👥 Teams
+          </button>
+          <button
+            onClick={() => router.push(`/match/${code}/speed`)}
+            style={{ background: 'rgba(48,209,88,.08)', border: '1px solid rgba(48,209,88,.2)', color: 'var(--green)', borderRadius: '10px', padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+          >
+            📷 Speed
           </button>
           <button
             onClick={() => {
@@ -240,6 +254,29 @@ export default function SpectatorView({
           >
             ✕ Cancel
           </button>
+          {/* Overs editor — 1st innings or innings break only */}
+          {(match.status === 'innings_1' || match.status === 'innings_break') && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(255,255,255,.04)', borderRadius: '10px', padding: '4px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap', width: '100%' }}>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 700, fontFamily: 'Barlow, sans-serif', whiteSpace: 'nowrap' }}>Overs:</span>
+              {[3, 5, 6, 8, 10, 15, 20].map(n => (
+                <button
+                  key={n}
+                  onClick={async () => {
+                    await fetch(`/api/match/${code}/action`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'update_overs', data: { matchId: match.id, overs: n } }),
+                    });
+                  }}
+                  style={{
+                    width: '28px', height: '24px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
+                    cursor: 'pointer', border: 'none', fontFamily: 'Barlow, sans-serif',
+                    background: match.overs === n ? '#e31b23' : 'rgba(255,255,255,.08)',
+                    color: match.overs === n ? '#fff' : 'var(--muted)',
+                  }}
+                >{n}</button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -471,8 +508,17 @@ export default function SpectatorView({
                         }}>{lbl.text}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'Barlow, sans-serif', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.4 }}>{event}</div>
-                          <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', marginTop: '1px' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', marginTop: '1px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             {b.over_number + 1}.{b.ball_number} · {batsman?.name ?? ''} · {bowler?.name ?? ''}
+                            {(b as any).ball_speed_kmh && (
+                              <span style={{
+                                background: (b as any).ball_speed_kmh >= 135 ? 'rgba(239,68,68,.15)' : (b as any).ball_speed_kmh >= 120 ? 'rgba(249,115,22,.12)' : 'rgba(10,132,255,.1)',
+                                color: (b as any).ball_speed_kmh >= 135 ? '#f87171' : (b as any).ball_speed_kmh >= 120 ? 'var(--live)' : 'var(--blue)',
+                                borderRadius: '4px', padding: '1px 5px', fontSize: '10px', fontWeight: 700,
+                              }}>
+                                ⚡ {Math.round((b as any).ball_speed_kmh)} km/h
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -603,6 +649,19 @@ export default function SpectatorView({
         )}
 
       </div>
+
+      {/* Manage Teams Sheet */}
+      {isOwner && code && (
+        <ManageTeamsSheet
+          isOpen={showManageTeams}
+          onClose={() => setShowManageTeams(false)}
+          players={players}
+          teams={[team1Obj, team2Obj].filter(Boolean) as any}
+          matchId={match.id}
+          code={code}
+          onUpdate={() => { /* realtime subscription handles refresh */ }}
+        />
+      )}
     </div>
   );
 }

@@ -80,6 +80,8 @@ export async function POST(
     wicket_type: b.wicket_type,
     fielder_id: b.fielder_id,
     is_free_hit: b.is_free_hit,
+    // Ball speed from camera — nullable, set by camera operator
+    ...(b.ball_speed_kmh != null ? { ball_speed_kmh: Number(b.ball_speed_kmh) } : {}),
   }));
   const { error: ballError } = await supabase.from('balls').insert(ballInserts);
   if (ballError) throw new Error(ballError.message);

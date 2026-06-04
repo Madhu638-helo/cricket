@@ -1,6 +1,12 @@
 'use client';
 import React, { useState, useEffect, useRef, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  DndContext, DragOverlay, useSensor, useSensors,
+  MouseSensor, TouchSensor, closestCenter, type DragStartEvent, type DragEndEvent,
+} from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
+import { useDraggable } from '@dnd-kit/core';
 import { createClient } from '@/lib/supabase/client';
 import Avatar from '@/components/ui/Avatar';
 import Badge from '@/components/ui/Badge';
@@ -9,13 +15,89 @@ import type { Session, Team, Player } from '@/types/cricket';
 
 interface PageProps { params: Promise<{ code: string }> }
 
-/* ────────────────────────────────────────────────────────
-   Drag-and-drop lobby with three zones:
-   • Team A column  • Team B column  • Unassigned pool
-   Players can be dragged between zones (touch + mouse).
-   Tapping a player in a team opens a role popover
-   (Captain / Scorer / Joker).
-   ──────────────────────────────────────────────────────── */
+// ── Droppable Zone ──────────────────────────────────────────
+function DroppableZone({ id, children, style }: { id: string; children: React.ReactNode; style?: React.CSSProperties }) {
+  const { isOver, setNodeRef } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} style={{
+      ...style,
+      transition: 'background .15s, border-color .15s',
+      background: isOver ? 'rgba(249,115,22,.08)' : (style?.background ?? 'transparent'),
+      borderColor: isOver ? 'rgba(249,115,22,.4)' : undefined,
+      borderStyle: isOver ? 'dashed' : (style?.borderStyle ?? undefined),
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// ── Draggable Player Chip ───────────────────────────────────
+function DraggablePlayerChip({
+  p, inTeam, isOwner, onTapChip, isActive,
+}: {
+  p: Player; inTeam: boolean; isOwner: boolean;
+  onTapChip: () => void; isActive: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: p.id, disabled: !isOwner });
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={onTapChip}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '8px',
+        padding: inTeam ? '8px 10px' : '8px 12px',
+        borderRadius: '10px',
+        background: isDragging ? 'rgba(249,115,22,.15)' : isActive ? 'rgba(227,27,35,.1)' : 'var(--s2)',
+        border: `1px solid ${isDragging ? 'rgba(249,115,22,.4)' : isActive ? 'rgba(227,27,35,.25)' : 'var(--border)'}`,
+        opacity: isDragging ? 0.4 : 1,
+        transition: 'all .15s',
+        userSelect: 'none',
+        cursor: isOwner ? 'pointer' : 'default',
+      }}
+    >
+      {/* Drag handle — only for owner */}
+      {isOwner && (
+        <div
+          {...listeners}
+          {...attributes}
+          onClick={e => e.stopPropagation()} // prevent tap-to-open-popover when dragging
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '20px', height: '32px', cursor: 'grab', color: 'var(--dim)',
+            fontSize: '14px', flexShrink: 0,
+            touchAction: 'none', // critical for dnd-kit on iOS
+          }}
+        >
+          ⠿
+        </div>
+      )}
+      <Avatar name={p.name} size={inTeam ? 26 : 34} />
+      <span style={{ fontSize: inTeam ? '12px' : '13px', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {p.name}
+      </span>
+      {p.is_captain && <Badge variant="cap">C</Badge>}
+      {p.is_scorer && <Badge variant="scorer">S</Badge>}
+      {p.is_joker && <Badge variant="joker">🃏</Badge>}
+    </div>
+  );
+}
+
+// ── Ghost chip shown while dragging ───────────────────────
+function GhostChip({ p }: { p: Player }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '8px',
+      padding: '8px 12px', borderRadius: '10px',
+      background: 'rgba(249,115,22,.2)', border: '1px solid rgba(249,115,22,.5)',
+      boxShadow: '0 8px 32px rgba(0,0,0,.7)', opacity: 0.92,
+      transform: 'scale(1.05)', pointerEvents: 'none',
+    }}>
+      <Avatar name={p.name} size={28} />
+      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--txt)' }}>{p.name}</span>
+    </div>
+  );
+}
 
 export default function LobbyPage({ params }: PageProps) {
   const { code } = use(params);
@@ -32,18 +114,33 @@ export default function LobbyPage({ params }: PageProps) {
   const [matchDate, setMatchDate] = useState<string | null>(null);
   const [matchTime, setMatchTime] = useState<string | null>(null);
   const [matchId, setMatchId] = useState<string | null>(null);
+  const [matchOvers, setMatchOvers] = useState<number>(6);
+  const [sessionName, setSessionName] = useState('');
   const [showDateEdit, setShowDateEdit] = useState(false);
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
   const [savingDate, setSavingDate] = useState(false);
 
-  // Drag state
-  const [dragging, setDragging] = useState<string | null>(null); // player id being dragged
-  const [dragOver, setDragOver] = useState<string | null>(null); // zone being hovered: 'team-0' | 'team-1' | 'unassigned'
+  // Match details edit
+  const [showDetailsEdit, setShowDetailsEdit] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editOvers, setEditOvers] = useState(6);
+  const [savingDetails, setSavingDetails] = useState(false);
 
   // Role popover
   const [roleTarget, setRoleTarget] = useState<Player | null>(null);
   const roleRef = useRef<HTMLDivElement>(null);
+
+  // Active drag
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  // ── dnd-kit sensors ──
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 6 },
+    }),
+  );
 
   // ── Load ──
   useEffect(() => {
@@ -92,12 +189,13 @@ export default function LobbyPage({ params }: PageProps) {
     if (!sess) { router.push('/'); return; }
     setSession(sess);
     setSessionId(sess.id);
+    setSessionName(sess.name ?? '');
     setIsOwner(userId === sess.owner_id);
 
     const [{ data: t }, { data: p }, { data: matchData }] = await Promise.all([
       supabase.from('teams').select('*').eq('session_id', sess.id),
       supabase.from('players').select('*').eq('session_id', sess.id),
-      supabase.from('matches').select('id,match_date,match_time').eq('session_id', sess.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('matches').select('id,match_date,match_time,overs').eq('session_id', sess.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     setTeams(t ?? []);
     setPlayers(p ?? []);
@@ -105,9 +203,12 @@ export default function LobbyPage({ params }: PageProps) {
       setMatchId(matchData.id ?? null);
       setMatchDate(matchData.match_date ?? null);
       setMatchTime(matchData.match_time ?? null);
+      setMatchOvers(matchData.overs ?? 6);
       setEditDate(matchData.match_date ?? '');
       setEditTime(matchData.match_time ?? '');
+      setEditOvers(matchData.overs ?? 6);
     }
+    setEditName(sess.name ?? '');
     setLoading(false);
 
     try {
@@ -118,31 +219,21 @@ export default function LobbyPage({ params }: PageProps) {
     } catch { /* QR optional */ }
   };
 
-  // ── Drag handlers ──
-  const handleDragStart = (e: React.DragEvent, playerId: string) => {
-    if (!isOwner) return;
-    setDragging(playerId);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', playerId);
+  // ── dnd-kit handlers ──
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+    setRoleTarget(null); // close any open popover
   };
 
-  const handleDragOver = (e: React.DragEvent, zone: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOver(zone);
-  };
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over } = event;
+    if (!over) return;
 
-  const handleDragLeave = () => setDragOver(null);
-
-  const handleDrop = async (e: React.DragEvent, zone: string) => {
-    e.preventDefault();
-    setDragOver(null);
-    const playerId = e.dataTransfer.getData('text/plain') || dragging;
-    setDragging(null);
-    if (!playerId) return;
+    const playerId = active.id as string;
+    const zone = over.id as string;
 
     if (zone === 'unassigned') {
-      // Remove from team + joker
       await supabase.from('players').update({ team_id: null, is_joker: false, is_captain: false }).eq('id', playerId);
     } else if (zone.startsWith('team-')) {
       const idx = parseInt(zone.split('-')[1]);
@@ -152,85 +243,6 @@ export default function LobbyPage({ params }: PageProps) {
       }
     }
     if (sessionId) loadPlayers(sessionId);
-  };
-
-  // ── Touch drag (mobile) ──
-  const touchDragRef = useRef<{ playerId: string; el: HTMLElement; ghost: HTMLElement | null; startX: number; startY: number; currentZone: string | null } | null>(null);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent, playerId: string) => {
-    if (!isOwner) return;
-    const touch = e.touches[0];
-    const el = e.currentTarget as HTMLElement;
-    touchDragRef.current = { playerId, el, ghost: null, startX: touch.clientX, startY: touch.clientY, currentZone: null };
-  }, [isOwner]);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const td = touchDragRef.current;
-    if (!td) return;
-    const touch = e.touches[0];
-    const dx = Math.abs(touch.clientX - td.startX);
-    const dy = Math.abs(touch.clientY - td.startY);
-    if (dx < 8 && dy < 8 && !td.ghost) return; // not dragging yet
-
-    e.preventDefault();
-
-    if (!td.ghost) {
-      // Create ghost
-      setDragging(td.playerId);
-      const ghost = td.el.cloneNode(true) as HTMLElement;
-      ghost.style.position = 'fixed';
-      ghost.style.pointerEvents = 'none';
-      ghost.style.opacity = '0.85';
-      ghost.style.zIndex = '9999';
-      ghost.style.width = td.el.offsetWidth + 'px';
-      ghost.style.transform = 'scale(1.08)';
-      ghost.style.boxShadow = '0 8px 32px rgba(0,0,0,.6)';
-      document.body.appendChild(ghost);
-      td.ghost = ghost;
-    }
-
-    td.ghost!.style.left = touch.clientX - td.el.offsetWidth / 2 + 'px';
-    td.ghost!.style.top = touch.clientY - 24 + 'px';
-
-    // Determine which zone we're over
-    const zones = document.querySelectorAll<HTMLElement>('[data-drop-zone]');
-    let overZone: string | null = null;
-    zones.forEach(z => {
-      const rect = z.getBoundingClientRect();
-      if (touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-        overZone = z.dataset.dropZone ?? null;
-      }
-    });
-    
-    td.currentZone = overZone;
-    setDragOver(overZone);
-  }, []);
-
-  const handleTouchEnd = useCallback(async () => {
-    const td = touchDragRef.current;
-    if (!td) return;
-
-    if (td.ghost) {
-      document.body.removeChild(td.ghost);
-      // Perform drop using the synchronously updated ref, avoiding React state race conditions
-      const finalZone = td.currentZone;
-      if (finalZone) {
-        if (finalZone === 'unassigned') {
-          await supabase.from('players').update({ team_id: null, is_joker: false, is_captain: false }).eq('id', td.playerId);
-        } else if (finalZone.startsWith('team-')) {
-          const idx = parseInt(finalZone.split('-')[1]);
-          const teamId = teams[idx]?.id;
-          if (teamId) {
-            await supabase.from('players').update({ team_id: teamId, is_joker: false }).eq('id', td.playerId);
-          }
-        }
-        if (sessionId) loadPlayers(sessionId);
-      }
-    }
-
-    touchDragRef.current = null;
-    setDragging(null);
-    setDragOver(null);
   }, [teams, sessionId]);
 
   // ── Role actions ──
@@ -247,6 +259,25 @@ export default function LobbyPage({ params }: PageProps) {
     if (sessionId) loadPlayers(sessionId);
   };
 
+  const removePlayerFromTeam = async (playerId: string) => {
+    setRoleTarget(null);
+    await fetch(`/api/match/${code}/action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove_player_from_team', data: { playerId } }),
+    });
+    if (sessionId) loadPlayers(sessionId);
+  };
+
+  const removePlayerFromLobby = async (playerId: string) => {
+    setRoleTarget(null);
+    if (!confirm('Remove this player from the lobby entirely? They can rejoin with the match code.')) return;
+    await fetch(`/api/match/${code}/action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove_player', data: { playerId } }),
+    });
+    if (sessionId) loadPlayers(sessionId);
+  };
+
   const updateTeamName = (teamId: string, name: string) => {
     setTeams(teams.map(t => t.id === teamId ? { ...t, name } : t));
   };
@@ -257,14 +288,37 @@ export default function LobbyPage({ params }: PageProps) {
   const saveMatchDateTime = async () => {
     if (!matchId) return;
     setSavingDate(true);
-    await supabase.from('matches').update({
-      match_date: editDate || null,
-      match_time: editTime || null,
-    }).eq('id', matchId);
-    setMatchDate(editDate || null);
-    setMatchTime(editTime || null);
+    try {
+      await fetch(`/api/match/${code}/action`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_match_schedule',
+          data: { matchId, matchDate: editDate || null, matchTime: editTime || null }
+        }),
+      });
+      setMatchDate(editDate || null);
+      setMatchTime(editTime || null);
+    } catch (e) {
+      console.error(e);
+    }
     setSavingDate(false);
     setShowDateEdit(false);
+  };
+
+  const saveMatchDetails = async () => {
+    setSavingDetails(true);
+    await fetch(`/api/match/${code}/action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_match_details',
+        data: { matchId, overs: editOvers, sessionName: editName },
+      }),
+    });
+    setSessionName(editName);
+    setMatchOvers(editOvers);
+    setSession(s => s ? { ...s, name: editName } : s);
+    setSavingDetails(false);
+    setShowDetailsEdit(false);
   };
 
   const shareLink = () => {
@@ -294,355 +348,403 @@ export default function LobbyPage({ params }: PageProps) {
   const totalExpected = (teams[0] ? 11 : 0) + (teams[1] ? 11 : 0);
   const pct = totalExpected > 0 ? Math.min(100, (players.length / totalExpected) * 100) : 0;
   const canProceed = team1.length >= 2 && team2.length >= 2;
+  const activeDragPlayer = activeDragId ? players.find(p => p.id === activeDragId) : null;
 
-  const dropZoneStyle = (zone: string): React.CSSProperties => ({
-    transition: 'background .15s, border-color .15s',
-    background: dragOver === zone ? 'rgba(249,115,22,.08)' : 'transparent',
-    borderColor: dragOver === zone ? 'rgba(249,115,22,.4)' : undefined,
-    borderStyle: dragOver === zone ? 'dashed' : undefined,
-  });
+  // Role popover for a player
 
-  const PlayerChip = ({ p, inTeam }: { p: Player; inTeam: boolean }) => (
+  const RolePopover = ({ p }: { p: Player }) => (
     <div
-      draggable={isOwner}
-      onDragStart={e => handleDragStart(e, p.id)}
-      onTouchStart={e => handleTouchStart(e, p.id)}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onClick={() => {
-        if (!isOwner || dragging) return;
-        setRoleTarget(roleTarget?.id === p.id ? null : p);
-      }}
+      ref={roleRef}
       style={{
-        display: 'flex', alignItems: 'center', gap: '8px',
-        padding: inTeam ? '8px 10px' : '8px 12px',
-        borderRadius: '10px', cursor: isOwner ? 'grab' : 'default',
-        background: dragging === p.id ? 'rgba(249,115,22,.15)' : roleTarget?.id === p.id ? 'rgba(227,27,35,.1)' : 'var(--s2)',
-        border: `1px solid ${dragging === p.id ? 'rgba(249,115,22,.4)' : roleTarget?.id === p.id ? 'rgba(227,27,35,.25)' : 'var(--border)'}`,
-        opacity: dragging === p.id ? 0.5 : 1,
-        transition: 'all .15s',
-        touchAction: 'none',
-        userSelect: 'none',
+        position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+        background: 'var(--s2)', border: '1px solid var(--border2)', borderRadius: '12px',
+        overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        minWidth: '160px',
       }}
     >
-      <Avatar name={p.name} size={inTeam ? 26 : 34} />
-      <span style={{ fontSize: inTeam ? '12px' : '13px', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-      {p.is_captain && <Badge variant="cap">C</Badge>}
-      {p.is_scorer && <Badge variant="scorer">S</Badge>}
-      {p.is_joker && <Badge variant="joker">🃏</Badge>}
+      {p.team_id && (
+        <button
+          onClick={() => assignRole(p.id, 'captain')}
+          style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_captain ? 'var(--live)' : 'var(--gold)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          👑 {p.is_captain ? 'Remove Captain' : 'Make Captain'}
+        </button>
+      )}
+      {p.team_id && (
+        <button
+          onClick={() => assignRole(p.id, 'scorer')}
+          style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_scorer ? 'var(--live)' : 'var(--blue)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          🎙️ {p.is_scorer ? 'Remove Scorer' : 'Make Scorer'}
+        </button>
+      )}
+      <button
+        onClick={() => assignRole(p.id, 'joker')}
+        style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_joker ? 'var(--live)' : 'var(--purple)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+      >
+        🃏 {p.is_joker ? 'Remove Joker' : 'Make Joker'}
+      </button>
+      {p.team_id && (
+        <button
+          onClick={() => removePlayerFromTeam(p.id)}
+          style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: 'var(--muted)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          ↩ Unassign from Team
+        </button>
+      )}
+      <button
+        onClick={() => removePlayerFromLobby(p.id)}
+        style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: '#f87171', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
+      >
+        🗑 Remove from Lobby
+      </button>
     </div>
   );
 
   return (
-    <div id="s-lobby" className="screen">
-      {/* Header */}
-      <div className="hdr">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button className="btn btn-ghost" style={{ width: '36px', height: '36px', padding: 0, borderRadius: '10px' }} onClick={() => router.back()}>
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <div>
-              <div className="heading" style={{ fontSize: '18px' }}>{session?.name ?? code}</div>
-              <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Match Lobby</div>
-            </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '4px', color: 'var(--red)' }}>{code}</div>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>Match Code</div>
-          </div>
-        </div>
-        <div className="card" style={{ padding: '12px 16px', background: 'var(--s2)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-            <div style={{ fontSize: '14px', color: 'var(--muted)' }}>
-              <b style={{ color: 'var(--txt)', fontSize: '16px' }}>{players.length}</b> players joined
-            </div>
-            {qrCode && <img src={qrCode} alt="QR" style={{ width: '48px', borderRadius: '6px' }} />}
-          </div>
-          <ProgressBar value={pct} />
-        </div>
-      </div>
-
-      <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-        {isOwner && (
-          <div style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: 'var(--gold)' }}>
-            <b>Drag & Drop</b> players to assign teams. Tap a player in a team to set Captain, Scorer, or Joker.
-          </div>
-        )}
-
-        {team1.length !== team2.length && jokers.length === 0 && (
-          <div style={{ background: 'rgba(139,92,246,.08)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: 'var(--purple)' }}>
-            <b>Teams are uneven!</b> Select a Joker player who can bat & bowl for both teams.
-          </div>
-        )}
-
-        {/* Teams grid — drop zones */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          {teams.map((team, idx) => {
-            const teamPlayers = idx === 0 ? team1 : team2;
-            const zone = `team-${idx}`;
-            return (
-              <div
-                key={team.id}
-                className="card"
-                data-drop-zone={zone}
-                onDragOver={e => handleDragOver(e, zone)}
-                onDragLeave={handleDragLeave}
-                onDrop={e => handleDrop(e, zone)}
-                style={{ padding: '12px', minHeight: '120px', ...dropZoneStyle(zone) }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: idx === 0 ? 'var(--red)' : 'var(--blue)', flexShrink: 0 }} />
-                  {isOwner ? (
-                    <input
-                      value={team.name}
-                      onChange={(e) => updateTeamName(team.id, e.target.value)}
-                      onBlur={(e) => saveTeamName(team.id, e.target.value)}
-                      style={{ background: 'transparent', border: 'none', fontSize: '13px', fontWeight: 700, color: 'var(--txt)', outline: 'none', width: '100%' }}
-                    />
-                  ) : (
-                    <div style={{ fontSize: '13px', fontWeight: 700 }}>{team.name}</div>
-                  )}
-                  <Badge variant="none">{teamPlayers.length}</Badge>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
-                  {teamPlayers.map(p => (
-                    <div key={p.id} style={{ position: 'relative' }}>
-                      <PlayerChip p={p} inTeam />
-                      {/* Role popover */}
-                      {roleTarget?.id === p.id && isOwner && (
-                        <div
-                          ref={roleRef}
-                          style={{
-                            position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                            background: 'var(--s2)', border: '1px solid var(--border2)', borderRadius: '12px',
-                            overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,.6)',
-                          }}
-                        >
-                          <button
-                            onClick={() => assignRole(p.id, 'captain')}
-                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_captain ? 'var(--live)' : 'var(--gold)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                          >
-                            👑 {p.is_captain ? 'Remove Captain' : 'Make Captain'}
-                          </button>
-                          <button
-                            onClick={() => assignRole(p.id, 'scorer')}
-                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: p.is_scorer ? 'var(--live)' : 'var(--blue)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                          >
-                            🎙️ {p.is_scorer ? 'Remove Scorer' : 'Make Scorer'}
-                          </button>
-                          <button
-                            onClick={() => assignRole(p.id, 'joker')}
-                            style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: p.is_joker ? 'var(--live)' : 'var(--purple)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                          >
-                            🃏 {p.is_joker ? 'Remove Joker' : 'Make Joker'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {teamPlayers.length === 0 && (
-                    <div style={{ fontSize: '11px', color: 'var(--dim)', textAlign: 'center', padding: '16px 8px', border: '1px dashed var(--dim)', borderRadius: '10px' }}>
-                      Drop players here
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Joker section */}
-        {jokers.length > 0 && (
-          <div className="card" style={{ padding: '14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <div style={{ fontSize: '20px' }}>🃏</div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div id="s-lobby" className="screen">
+        {/* Header */}
+        <div className="hdr">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button className="btn btn-ghost" style={{ width: '36px', height: '36px', padding: 0, borderRadius: '10px' }} onClick={() => router.back()}>
+                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" d="M15 19l-7-7 7-7" /></svg>
+              </button>
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 700 }}>Joker Players</div>
-                <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Can bat & bowl for either team</div>
+                <div className="heading" style={{ fontSize: '18px' }}>{session?.name ?? code}</div>
+                <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Match Lobby</div>
               </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {jokers.map(p => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(139,92,246,.1)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '20px', padding: '3px 10px' }}>
-                  <Avatar name={p.name} size={18} />
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--purple)' }}>{p.name}</span>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '4px', color: 'var(--red)' }}>{code}</div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>Match Code</div>
+            </div>
+          </div>
+          <div className="card" style={{ padding: '12px 16px', background: 'var(--s2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ fontSize: '14px', color: 'var(--muted)' }}>
+                <b style={{ color: 'var(--txt)', fontSize: '16px' }}>{players.length}</b> players joined
+                <span style={{ marginLeft: '10px', fontSize: '12px', color: 'var(--dim)' }}>· {matchOvers} overs</span>
+              </div>
+              {qrCode && <img src={qrCode} alt="QR" style={{ width: '48px', borderRadius: '6px' }} />}
+            </div>
+            <ProgressBar value={pct} />
+          </div>
+        </div>
+
+        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {isOwner && (
+            <div style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: 'var(--gold)' }}>
+              <b>Drag ⠿ handle</b> to assign teams · <b>Tap chip</b> to set role or remove
+            </div>
+          )}
+
+          {team1.length !== team2.length && jokers.length === 0 && (
+            <div style={{ background: 'rgba(139,92,246,.08)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '12px', padding: '10px 14px', fontSize: '12px', color: 'var(--purple)' }}>
+              <b>Teams are uneven!</b> Select a Joker player who can bat &amp; bowl for both teams.
+            </div>
+          )}
+
+          {/* Teams grid — drop zones */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            {teams.map((team, idx) => {
+              const teamPlayers = idx === 0 ? team1 : team2;
+              const zone = `team-${idx}`;
+              return (
+                <DroppableZone
+                  key={team.id}
+                  id={zone}
+                  style={{
+                    padding: '12px', minHeight: '120px', minWidth: 0,
+                    background: 'var(--s1)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)',
+                    borderRadius: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: idx === 0 ? 'var(--red)' : 'var(--blue)', flexShrink: 0 }} />
+                    {isOwner ? (
+                      <input
+                        value={team.name}
+                        onChange={(e) => updateTeamName(team.id, e.target.value)}
+                        onBlur={(e) => saveTeamName(team.id, e.target.value)}
+                        style={{ background: 'transparent', border: 'none', fontSize: '13px', fontWeight: 700, color: 'var(--txt)', outline: 'none', width: '100%', minWidth: 0 }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: '13px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</div>
+                    )}
+                    <Badge variant="none">{teamPlayers.length}</Badge>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
+                    {teamPlayers.map(p => (
+                      <div key={p.id} style={{ position: 'relative' }}>
+                        <DraggablePlayerChip
+                          p={p}
+                          inTeam
+                          isOwner={isOwner}
+                          isActive={roleTarget?.id === p.id}
+                          onTapChip={() => {
+                            if (!isOwner || activeDragId) return;
+                            setRoleTarget(roleTarget?.id === p.id ? null : p);
+                          }}
+                        />
+                        {roleTarget?.id === p.id && isOwner && <RolePopover p={p} />}
+                      </div>
+                    ))}
+                    {teamPlayers.length === 0 && (
+                      <div style={{ fontSize: '11px', color: 'var(--dim)', textAlign: 'center', padding: '16px 8px', border: '1px dashed var(--dim)', borderRadius: '10px' }}>
+                        Drop players here
+                      </div>
+                    )}
+                  </div>
+                </DroppableZone>
+              );
+            })}
+          </div>
+
+          {/* Joker section */}
+          {jokers.length > 0 && (
+            <div className="card" style={{ padding: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ fontSize: '20px' }}>🃏</div>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 700 }}>Joker Players</div>
+                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Can bat &amp; bowl for either team</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {jokers.map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(139,92,246,.1)', border: '1px solid rgba(139,92,246,.2)', borderRadius: '20px', padding: '3px 10px' }}>
+                    <Avatar name={p.name} size={18} />
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--purple)' }}>{p.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Unassigned pool — drop zone */}
+          <DroppableZone
+            id="unassigned"
+            style={{
+              minHeight: unassigned.length === 0 && !activeDragId ? '0' : '60px',
+              borderRadius: '14px',
+              padding: unassigned.length > 0 || activeDragId ? '12px' : '0',
+              borderWidth: activeDragId ? '2px' : '0px',
+              borderStyle: activeDragId ? 'dashed' : 'solid',
+              borderColor: activeDragId ? 'var(--dim)' : 'transparent',
+            }}
+          >
+            {(unassigned.length > 0 || activeDragId) && (
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: '10px' }}>
+                {unassigned.length > 0 ? `Unassigned (${unassigned.length})` : 'Drop here to unassign'}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {unassigned.map(p => (
+                <div key={p.id} style={{ minWidth: '80px', flex: '0 0 auto', position: 'relative' }}>
+                  <DraggablePlayerChip
+                    p={p}
+                    inTeam={false}
+                    isOwner={isOwner}
+                    isActive={roleTarget?.id === p.id}
+                    onTapChip={() => {
+                      if (!isOwner || activeDragId) return;
+                      setRoleTarget(roleTarget?.id === p.id ? null : p);
+                    }}
+                  />
+                  {roleTarget?.id === p.id && isOwner && <RolePopover p={p} />}
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          </DroppableZone>
 
-        {/* Unassigned pool — drop zone */}
-        <div
-          data-drop-zone="unassigned"
-          onDragOver={e => handleDragOver(e, 'unassigned')}
-          onDragLeave={handleDragLeave}
-          onDrop={e => handleDrop(e, 'unassigned')}
-          style={{
-            minHeight: unassigned.length === 0 && !dragging ? '0' : '60px',
-            borderRadius: '14px', padding: unassigned.length > 0 || dragging ? '12px' : '0',
-            border: dragging ? '2px dashed var(--dim)' : 'none',
-            ...dropZoneStyle('unassigned'),
-          }}
-        >
-          {(unassigned.length > 0 || dragging) && (
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: '10px' }}>
-              {unassigned.length > 0 ? `Unassigned (${unassigned.length})` : 'Drop here to unassign'}
+          {/* Match Details Card (owner only) */}
+          {isOwner && (
+            <div className="card" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showDetailsEdit ? '12px' : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>📋</span>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Match Details</div>
+                    {!showDetailsEdit && (
+                      <div style={{ fontSize: '13px', color: 'var(--txt)', marginTop: '2px' }}>
+                        {sessionName || code} · <span style={{ color: 'var(--live)' }}>{matchOvers} overs</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setShowDetailsEdit(!showDetailsEdit); setEditName(sessionName); setEditOvers(matchOvers); }}
+                  style={{ background: showDetailsEdit ? 'rgba(239,68,68,.1)' : 'var(--s2)', border: `1px solid ${showDetailsEdit ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, color: showDetailsEdit ? 'var(--red)' : 'var(--muted)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  {showDetailsEdit ? 'Cancel' : '✏️ Edit'}
+                </button>
+              </div>
+
+              {showDetailsEdit && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Match name */}
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Match Name</div>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      placeholder="e.g. Sunday League Finals"
+                      className="inp"
+                      style={{ fontSize: '14px', padding: '10px' }}
+                    />
+                  </div>
+
+                  {/* Overs */}
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Overs per Innings</div>
+                    <input
+                      type="number"
+                      value={editOvers}
+                      onChange={e => setEditOvers(Number(e.target.value))}
+                      min={1}
+                      max={200}
+                      className="inp"
+                      style={{ fontSize: '14px', padding: '10px', width: '100px' }}
+                    />
+                  </div>
+
+                  <button
+                    onClick={saveMatchDetails}
+                    disabled={savingDetails}
+                    className="btn btn-red"
+                    style={{ padding: '10px', fontSize: '13px', opacity: savingDetails ? 0.6 : 1 }}
+                  >
+                    {savingDetails ? 'Saving…' : '✓ Save Details'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {unassigned.map(p => (
-              <div key={p.id} style={{ minWidth: '80px', flex: '0 0 auto', position: 'relative' }}>
-                <PlayerChip p={p} inTeam={false} />
-                {/* Joker popover for unassigned players */}
-                {roleTarget?.id === p.id && isOwner && (
-                  <div
-                    ref={roleRef}
-                    style={{
-                      position: 'absolute', top: '100%', left: 0, marginTop: '4px',
-                      background: 'var(--s2)', border: '1px solid var(--border2)', borderRadius: '12px',
-                      overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,.6)',
-                      minWidth: '150px',
-                    }}
-                  >
-                    <button
-                      onClick={() => assignRole(p.id, 'joker')}
-                      style={{ width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', color: 'var(--purple)', fontSize: '13px', fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
-                      🃏 Make Joker
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Date / Time Card */}
-        <div className="card" style={{ padding: '14px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showDateEdit ? '12px' : 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '18px' }}>📅</span>
-              <div>
-                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Match Schedule</div>
-                {matchDate ? (
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--txt)', marginTop: '2px' }}>
-                    {new Date(matchDate).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-                    {matchTime && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {matchTime}</span>}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: '13px', color: 'var(--dim)', marginTop: '2px' }}>No date set</div>
-                )}
+          {/* Date / Time Card */}
+          <div className="card" style={{ padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showDateEdit ? '12px' : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>📅</span>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Match Schedule</div>
+                  {matchDate ? (
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--txt)', marginTop: '2px' }}>
+                      {new Date(matchDate).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                      {matchTime && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {matchTime}</span>}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: 'var(--dim)', marginTop: '2px' }}>No date set</div>
+                  )}
+                </div>
               </div>
+              {isOwner && (
+                <button
+                  onClick={() => { setShowDateEdit(!showDateEdit); setEditDate(matchDate ?? ''); setEditTime(matchTime ?? ''); }}
+                  style={{ background: showDateEdit ? 'rgba(239,68,68,.1)' : 'var(--s2)', border: `1px solid ${showDateEdit ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, color: showDateEdit ? 'var(--red)' : 'var(--muted)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  {showDateEdit ? 'Cancel' : '✏️ Edit'}
+                </button>
+              )}
             </div>
-            {isOwner && (
-              <button
-                onClick={() => { setShowDateEdit(!showDateEdit); setEditDate(matchDate ?? ''); setEditTime(matchTime ?? ''); }}
-                style={{ background: showDateEdit ? 'rgba(239,68,68,.1)' : 'var(--s2)', border: `1px solid ${showDateEdit ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, color: showDateEdit ? 'var(--red)' : 'var(--muted)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                {showDateEdit ? 'Cancel' : '✏️ Edit'}
-              </button>
+
+            {isOwner && showDateEdit && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Date</div>
+                    <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className="inp" style={{ fontSize: '14px', padding: '10px', width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Time</div>
+                    <input type="time" value={editTime} onChange={e => setEditTime(e.target.value)} className="inp" style={{ fontSize: '14px', padding: '10px', width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={saveMatchDateTime} disabled={savingDate} className="btn btn-red" style={{ flex: 1, padding: '10px', fontSize: '13px', opacity: savingDate ? 0.6 : 1 }}>
+                    {savingDate ? 'Saving…' : '✓ Save Schedule'}
+                  </button>
+                  {(matchDate || matchTime) && (
+                    <button
+                      onClick={async () => {
+                        setEditDate(''); setEditTime('');
+                        await fetch(`/api/match/${code}/action`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'update_match_schedule', data: { matchId, matchDate: null, matchTime: null } }),
+                        });
+                        setMatchDate(null); setMatchTime(null);
+                        setShowDateEdit(false);
+                      }}
+                      style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
-          {isOwner && showDateEdit && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Date</div>
-                  <input
-                    type="date"
-                    value={editDate}
-                    onChange={e => setEditDate(e.target.value)}
-                    className="inp"
-                    style={{ fontSize: '14px', padding: '10px', width: '100%', boxSizing: 'border-box' }}
-                  />
-                </div>
-                <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '.5px' }}>Time</div>
-                  <input
-                    type="time"
-                    value={editTime}
-                    onChange={e => setEditTime(e.target.value)}
-                    className="inp"
-                    style={{ fontSize: '14px', padding: '10px', width: '100%', boxSizing: 'border-box' }}
-                  />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={saveMatchDateTime}
-                  disabled={savingDate}
-                  className="btn btn-red"
-                  style={{ flex: 1, padding: '10px', fontSize: '13px', opacity: savingDate ? 0.6 : 1 }}
-                >
-                  {savingDate ? 'Saving…' : '✓ Save Schedule'}
-                </button>
-                {(matchDate || matchTime) && (
-                  <button
-                    onClick={async () => {
-                      setEditDate(''); setEditTime('');
-                      await supabase.from('matches').update({ match_date: null, match_time: null }).eq('id', matchId!);
-                      setMatchDate(null); setMatchTime(null);
-                      setShowDateEdit(false);
-                    }}
-                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {isOwner && (() => {
-            let canStart = canProceed;
-            let dateMsg = '';
-            if (matchDate) {
-              const today = new Date();
-              const mDate = new Date(matchDate);
-              const todayStr = today.toISOString().slice(0, 10);
-              const matchStr = mDate.toISOString().slice(0, 10);
-              if (todayStr < matchStr) {
-                canStart = false;
-                dateMsg = `Scheduled for ${mDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}${matchTime ? ' at ' + matchTime : ''}`;
+          {/* Actions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {isOwner && (() => {
+              let canStart = canProceed;
+              let dateMsg = '';
+              if (matchDate) {
+                const today = new Date();
+                const mDate = new Date(matchDate);
+                const todayStr = today.toISOString().slice(0, 10);
+                const matchStr = mDate.toISOString().slice(0, 10);
+                if (todayStr < matchStr) {
+                  canStart = false;
+                  dateMsg = `Scheduled for ${mDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}${matchTime ? ' at ' + matchTime : ''}`;
+                }
               }
-            }
-            return (
-              <>
-                <button
-                  className="btn btn-red btn-full"
-                  style={{ padding: '15px', fontSize: '15px', opacity: canStart ? 1 : 0.4 }}
-                  disabled={!canStart}
-                  onClick={() => router.push(`/match/${code}/toss`)}
-                >
-                  Proceed to Toss →
-                </button>
-                {dateMsg && (
-                  <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--gold)', fontFamily: 'Barlow, sans-serif', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '10px', padding: '8px 14px' }}>
-                    🕐 {dateMsg}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-          <button className="btn btn-ghost btn-full" style={{ padding: '12px', fontSize: '13px' }} onClick={shareLink}>
-            Share Join Link
-          </button>
-          {qrCode && (
-            <div style={{ textAlign: 'center', marginTop: '16px' }}>
-              <img src={qrCode} alt="QR Code" style={{ width: '140px', borderRadius: '12px' }} />
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--muted)', marginTop: '8px' }}>Scan to join match</div>
-            </div>
-          )}
-        </div>
+              return (
+                <>
+                  <button
+                    className="btn btn-red btn-full"
+                    style={{ padding: '15px', fontSize: '15px', opacity: canStart ? 1 : 0.4 }}
+                    disabled={!canStart}
+                    onClick={() => router.push(`/match/${code}/toss`)}
+                  >
+                    Proceed to Toss →
+                  </button>
+                  {dateMsg && (
+                    <div style={{ textAlign: 'center', fontSize: '12px', color: 'var(--gold)', fontFamily: 'Barlow, sans-serif', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)', borderRadius: '10px', padding: '8px 14px' }}>
+                      🕐 {dateMsg}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+            <button className="btn btn-ghost btn-full" style={{ padding: '12px', fontSize: '13px' }} onClick={shareLink}>
+              Share Join Link
+            </button>
+            {qrCode && (
+              <div style={{ textAlign: 'center', marginTop: '16px' }}>
+                <img src={qrCode} alt="QR Code" style={{ width: '140px', borderRadius: '12px' }} />
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--muted)', marginTop: '8px' }}>Scan to join match</div>
+              </div>
+            )}
+          </div>
 
+        </div>
       </div>
-    </div>
+
+      {/* DragOverlay — renders the floating ghost during drag */}
+      <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+        {activeDragPlayer ? <GhostChip p={activeDragPlayer} /> : null}
+      </DragOverlay>
+    </DndContext>
   );
 }

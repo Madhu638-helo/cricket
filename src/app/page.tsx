@@ -82,7 +82,7 @@ export default function HomePage() {
   }, [router]);
 
   const loadDashboard = async () => {
-    const res = await fetch('/api/user/dashboard');
+    const res = await fetch('/api/user/dashboard', { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       const s = data.stats || { runs: 0, wickets: 0, catches: 0, mvps: 0 };

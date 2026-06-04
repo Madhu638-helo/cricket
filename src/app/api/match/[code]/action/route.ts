@@ -560,6 +560,65 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
 
+    // Remove player entirely from session (hard delete)
+    case 'remove_player': {
+      const { playerId } = data;
+      // Verify player belongs to this session before deleting
+      const { data: player } = await supabase.from('players').select('id').eq('id', playerId).eq('session_id', session.id).single();
+      if (!player) return NextResponse.json({ error: 'Player not found in this session' }, { status: 404 });
+      await supabase.from('players').delete().eq('id', playerId).eq('session_id', session.id);
+      return NextResponse.json({ success: true });
+    }
+
+    // Remove player from team (back to unassigned pool)
+    case 'remove_player_from_team': {
+      const { playerId } = data;
+      await supabase.from('players').update({
+        team_id: null, is_captain: false, is_joker: false,
+      }).eq('id', playerId).eq('session_id', session.id);
+      return NextResponse.json({ success: true });
+    }
+
+    // Change overs count (only allowed during innings_1 or innings_break)
+    case 'update_overs': {
+      const { matchId, overs } = data;
+      if (!overs || overs < 1 || overs > 50) {
+        return NextResponse.json({ error: 'Invalid overs value' }, { status: 400 });
+      }
+      const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
+      if (!m || !['innings_1', 'innings_break'].includes(m.status)) {
+        return NextResponse.json({ error: 'Can only change overs before 2nd innings starts' }, { status: 400 });
+      }
+      await supabase.from('matches').update({ overs }).eq('id', matchId);
+      return NextResponse.json({ success: true });
+    }
+
+    // Update match details (name + overs) before innings start
+    case 'update_match_details': {
+      const { matchId, overs, sessionName } = data;
+      if (sessionName !== undefined) {
+        await supabase.from('sessions').update({ name: sessionName }).eq('id', session.id);
+      }
+      if (matchId && overs) {
+        const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
+        // Only update overs if match hasn't started innings yet
+        if (m && ['setup', 'toss'].includes(m.status)) {
+          await supabase.from('matches').update({ overs }).eq('id', matchId);
+        }
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // Update match schedule (date/time)
+    case 'update_match_schedule': {
+      const { matchDate, matchTime } = data;
+      await supabase.from('sessions').update({
+        match_date: matchDate,
+        match_time: matchTime,
+      }).eq('id', session.id);
+      return NextResponse.json({ success: true });
+    }
+
     default:
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   }

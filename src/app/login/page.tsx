@@ -10,6 +10,8 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [fullName, setFullName] = useState('');
   const [redirectUrl, setRedirectUrl] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -20,8 +22,23 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+
+    // Client-side validations
+    if (mode === 'signup' && fullName.trim().length < 3) {
+      setError('Full name must be at least 3 characters');
+      return;
+    }
+    if (identifier.trim().length < 3) {
+      setError('Username must be at least 3 characters');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
 
     const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/signup';
     const body = mode === 'login'
@@ -108,16 +125,44 @@ export default function LoginPage() {
 
           <div>
             <div className="label">Password</div>
-            <input
-              id="auth-password"
-              className="inp"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                id="auth-password"
+                className="inp"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyUp={(e: any) => {
+                  if (e.getModifierState) setCapsLockOn(e.getModifierState('CapsLock'));
+                }}
+                onKeyDown={(e: any) => {
+                  if (e.getModifierState) setCapsLockOn(e.getModifierState('CapsLock'));
+                }}
+                required
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                style={{ paddingRight: '44px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
+                style={{
+                  position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer',
+                  fontSize: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '4px'
+                }}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? '🫣' : '👁️'}
+              </button>
+            </div>
+            {capsLockOn && (
+              <div style={{ fontSize: '12px', color: '#f59e0b', marginTop: '6px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '14px' }}>⚠️</span> Caps Lock is ON
+              </div>
+            )}
           </div>
 
           {error && (

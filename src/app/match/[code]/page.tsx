@@ -14,6 +14,7 @@ import PlayerSelectSheet from '@/components/sheets/PlayerSelectSheet';
 import InningsBreakSheet from '@/components/sheets/InningsBreakSheet';
 import TransferScorerSheet from '@/components/sheets/TransferScorerSheet';
 import AssignPlayersSheet from '@/components/sheets/AssignPlayersSheet';
+import ManageTeamsSheet from '@/components/sheets/ManageTeamsSheet';
 import BattingTable from '@/components/scorecard/BattingTable';
 import BowlingTable from '@/components/scorecard/BowlingTable';
 import SessionStandings from '@/components/scorecard/SessionStandings';
@@ -44,6 +45,7 @@ export default function MatchPage({ params }: PageProps) {
   const [showInningsBreak, setShowInningsBreak] = useState(false);
   const [showTransferScorer, setShowTransferScorer] = useState(false);
   const [showAssignPlayers, setShowAssignPlayers] = useState(false);
+  const [showManageTeams, setShowManageTeams] = useState(false);
 
   // Overlays
   const [showSixOverlay, setShowSixOverlay] = useState(false);
@@ -59,7 +61,7 @@ export default function MatchPage({ params }: PageProps) {
   const [previousOverBowlerId, setPreviousOverBowlerId] = useState<string>('');
   const [playAgainOvers, setPlayAgainOvers] = useState<number>(0); // 0 = inherit from match
 
-  const { session, match, innings, balls, players, teams: teamsFromDb, loading, error, sendScoreUpdate } = useRealtimeMatch(code);
+  const { session, match, innings, balls, players, teams: teamsFromDb, loading, error, sendScoreUpdate, pendingSpeeds, clearPendingSpeeds } = useRealtimeMatch(code);
 
   // Auto-close: if match started but still 'active' >30min past expected end, call close action
   useEffect(() => {
@@ -293,6 +295,10 @@ export default function MatchPage({ params }: PageProps) {
     const allLegal = inningsBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
     const currentOversFinished = Math.floor(allLegal / 6);
 
+    const avgSpeed = pendingSpeeds.length > 0 
+      ? Math.round(pendingSpeeds.reduce((a, b) => a + b, 0) / pendingSpeeds.length)
+      : null;
+
     const newBall = {
       ...payload,
       innings_id: currentInnings?.id,
@@ -303,8 +309,11 @@ export default function MatchPage({ params }: PageProps) {
       bowler_id: bowlerId,
       non_striker_id: nonStrikerId,
       is_free_hit: isFreehitNext,
-      is_wicket: payload.is_wicket ?? false
+      is_wicket: payload.is_wicket ?? false,
+      ball_speed_kmh: avgSpeed,
     };
+    
+    clearPendingSpeeds();
     
     const newPending = [...pendingBalls, newBall];
     setPendingBalls(newPending);
@@ -599,9 +608,9 @@ export default function MatchPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Pause/Resume for owner during active play */}
+        {/* Pause/Resume + Owner Actions for active play */}
         {isOwner && match.status !== 'result' && match.status !== 'setup' && (
-          <div style={{ padding: '0 16px 8px', display: 'flex', gap: '8px' }}>
+          <div style={{ padding: '0 16px 8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={async () => {
                 await fetch(`/api/match/${code}/action`, {
@@ -613,6 +622,43 @@ export default function MatchPage({ params }: PageProps) {
             >
               {match.is_paused ? '▶ Resume' : '⏸ Pause'}
             </button>
+            <button
+              onClick={() => setShowManageTeams(true)}
+              style={{ background: 'rgba(10,132,255,.08)', border: '1px solid rgba(10,132,255,.2)', color: 'var(--blue)', borderRadius: '10px', padding: '7px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              👥 Teams
+            </button>
+            <button
+              onClick={() => router.push(`/match/${code}/speed`)}
+              style={{ background: 'rgba(48,209,88,.08)', border: '1px solid rgba(48,209,88,.2)', color: 'var(--green)', borderRadius: '10px', padding: '7px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              📷 Speed
+            </button>
+            {/* Overs editor — only during 1st innings or innings break */}
+            {(match.status === 'innings_1' || match.status === 'innings_break') && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,.04)', borderRadius: '10px', padding: '4px 10px', border: '1px solid rgba(255,255,255,.08)', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>Overs:</span>
+                {[3, 5, 6, 8, 10, 15, 20].map(n => (
+                  <button
+                    key={n}
+                    onClick={async () => {
+                      const res = await fetch(`/api/match/${code}/action`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'update_overs', data: { matchId: match.id, overs: n } }),
+                      });
+                      if (!res.ok) showToast('Cannot change overs now', 'error');
+                      else showToast(`Overs changed to ${n}`, 'success');
+                    }}
+                    style={{
+                      width: '30px', height: '24px', borderRadius: '6px', fontSize: '11px', fontWeight: 700,
+                      cursor: 'pointer', border: 'none',
+                      background: match.overs === n ? 'var(--red)' : 'rgba(255,255,255,.08)',
+                      color: match.overs === n ? '#fff' : 'var(--muted)',
+                    }}
+                  >{n}</button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -705,14 +751,30 @@ export default function MatchPage({ params }: PageProps) {
                         ↩ Undo Last Over
                       </button>
                     )}
-                    <button
-                      onClick={() => setShowTransferScorer(true)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--blue)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', padding: '4px', marginLeft: 'auto' }}
-                    >
-                      ⇄ Handover Scorer
-                    </button>
-                  </div>
-                  <ScoringPad
+                      <button
+                        onClick={() => setShowTransferScorer(true)}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--blue)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', padding: '4px', marginLeft: 'auto' }}
+                      >
+                        ⇄ Handover Scorer
+                      </button>
+                    </div>
+
+                    {/* Speed indicator */}
+                    {pendingSpeeds.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', padding: '6px 12px', background: 'rgba(48,209,88,.1)', border: '1px solid rgba(48,209,88,.2)', borderRadius: '8px' }}>
+                        <span style={{ fontSize: '14px' }}>⚡</span>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--green)' }}>
+                          Speed tracked: {Math.round(pendingSpeeds.reduce((a, b) => a + b, 0) / pendingSpeeds.length)} km/h
+                          {pendingSpeeds.length > 1 && <span style={{ opacity: 0.6 }}> (avg from {pendingSpeeds.length} devices)</span>}
+                        </div>
+                        <button
+                          onClick={clearPendingSpeeds}
+                          style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '12px', cursor: 'pointer' }}
+                        >✕</button>
+                      </div>
+                    )}
+
+                    <ScoringPad
                     onScore={handleScore}
                     onWicket={handleWicket}
                     onRetiredHurt={() => setShowBatsman(true)}
@@ -997,6 +1059,17 @@ export default function MatchPage({ params }: PageProps) {
         unassignedPlayers={unassignedPlayers}
         teams={teamsFromDb}
         onAssign={handleAssignPlayer}
+      />
+
+      {/* Manage Teams Sheet */}
+      <ManageTeamsSheet
+        isOpen={showManageTeams}
+        onClose={() => setShowManageTeams(false)}
+        players={players}
+        teams={teamsFromDb}
+        matchId={match.id}
+        code={code}
+        onUpdate={() => { /* realtime subscription handles refresh */ }}
       />
     </ErrorBoundary>
   );

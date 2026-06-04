@@ -12,8 +12,10 @@ export interface RealtimeMatchData {
   teams: Team[];
   loading: boolean;
   error: string | null;
+  pendingSpeeds: number[];
   /** Broadcast live score update to all viewers (scorer calls this per ball) */
   sendScoreUpdate: (inningsId: string, runs: number, wickets: number, balls: number) => void;
+  clearPendingSpeeds: () => void;
 }
 
 export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
@@ -23,8 +25,8 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
   const supabase = supabaseRef.current;
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const [data, setData] = useState<Omit<RealtimeMatchData, 'sendScoreUpdate'>>({
-    session: null, match: null, innings: [], balls: [], players: [], teams: [], loading: true, error: null,
+  const [data, setData] = useState<Omit<RealtimeMatchData, 'sendScoreUpdate' | 'clearPendingSpeeds'>>({
+    session: null, match: null, innings: [], balls: [], players: [], teams: [], loading: true, error: null, pendingSpeeds: []
   });
   const sessionIdRef = useRef<string>('');
   const matchIdRef = useRef<string>('');
@@ -53,7 +55,7 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
       supabase.from('teams').select('*').eq('session_id', session.id),
     ]);
 
-    setData({ session, match, innings: innings ?? [], balls: balls ?? [], players: players ?? [], teams: teams ?? [], loading: false, error: null });
+    setData(prev => ({ ...prev, session, match, innings: innings ?? [], balls: balls ?? [], players: players ?? [], teams: teams ?? [], loading: false, error: null }));
   }, [matchCode]);
 
   useEffect(() => {
@@ -79,6 +81,17 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
               : i
           ),
         }));
+      })
+      // Listen for ball speed broadcasts from the Speed Cam page (from this device or others)
+      .on('broadcast', { event: 'ball_speed' }, (payload: any) => {
+        const kmh = payload.payload?.speed_kmh;
+        if (typeof kmh === 'number') {
+          setData(prev => {
+            // Keep last 10 readings max to prevent memory bloat, although it should be cleared per ball
+            const updated = [...prev.pendingSpeeds, kmh].slice(-10);
+            return { ...prev, pendingSpeeds: updated };
+          });
+        }
       })
       // Match status changes (pause, result, etc.) — refetch match row only
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
@@ -176,5 +189,9 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
     });
   }, []);
 
-  return { ...data, sendScoreUpdate };
+  const clearPendingSpeeds = useCallback(() => {
+    setData(prev => ({ ...prev, pendingSpeeds: [] }));
+  }, []);
+
+  return { ...data, sendScoreUpdate, clearPendingSpeeds };
 }
