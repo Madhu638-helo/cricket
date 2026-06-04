@@ -45,7 +45,7 @@ const SPEED_WINDOW = 4;
 // ── Input tensor config (must match model export) ──
 const MODEL_INPUT_W = 640;
 const MODEL_INPUT_H = 640;
-const CONF_THRESH = 0.35;
+const CONF_THRESH = 0.15;
 const NMS_IOU = 0.45;
 const BALL_CLASS = 32; // COCO sports-ball class index
 

@@ -74,6 +74,9 @@ export default function SpeedCameraPage({ params }: PageProps) {
   const [pitchPx, setPitchPx] = useState(200); // pixels for calibration
   const [pitchLengthM, setPitchLengthM] = useState(20.12); // real world pitch length in meters
   const [showCalib, setShowCalib] = useState(false);
+  const [calibState, setCalibState] = useState<'idle' | 'point1' | 'point2' | 'done'>('idle');
+  const [calibPoint1, setCalibPoint1] = useState<{x: number, y: number} | null>(null);
+  const [calibPoint2, setCalibPoint2] = useState<{x: number, y: number} | null>(null);
   const [detectedBall, setDetectedBall] = useState(false);
   const [showFlash, setShowFlash] = useState(false);
 
@@ -115,6 +118,37 @@ export default function SpeedCameraPage({ params }: PageProps) {
     setSyncedToScorer(true);
     setTimeout(() => setSyncedToScorer(false), 3000);
   }, [code]);
+
+  // ── Calibration tap handler ──
+  const handleCalibClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (calibState === 'idle' || calibState === 'done') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Convert DOM click coordinates to Canvas intrinsic coordinates
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const intrinsicX = x * scaleX;
+    const intrinsicY = y * scaleY;
+
+    if (calibState === 'point1') {
+      setCalibPoint1({ x: intrinsicX, y: intrinsicY });
+      setCalibState('point2');
+    } else if (calibState === 'point2') {
+      setCalibPoint2({ x: intrinsicX, y: intrinsicY });
+      setCalibState('done');
+      
+      const dist = Math.sqrt(
+        Math.pow(intrinsicX - (calibPoint1?.x ?? 0), 2) + 
+        Math.pow(intrinsicY - (calibPoint1?.y ?? 0), 2)
+      );
+      setPitchPx(Math.round(dist));
+      workerRef.current?.postMessage({ type: 'calibrate', data: { pixelsPerMeter: dist / pitchLengthM } });
+    }
+  }, [calibState, calibPoint1, pitchLengthM]);
 
   // ── Overlay drawing ──
   const drawOverlay = useCallback((result: WorkerResult) => {
@@ -342,7 +376,7 @@ export default function SpeedCameraPage({ params }: PageProps) {
       </div>
 
       {/* Video feed */}
-      <div style={{ position: 'relative', flex: 1 }}>
+      <div style={{ position: 'relative', flex: 1 }} onClick={handleCalibClick}>
         <video
           ref={videoRef}
           playsInline muted autoPlay
@@ -355,6 +389,14 @@ export default function SpeedCameraPage({ params }: PageProps) {
           ref={overlayRef}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
         />
+        
+        {/* Calibration Markers */}
+        {calibPoint1 && overlayRef.current && (
+          <div style={{ position: 'absolute', left: `${(calibPoint1.x / overlayRef.current.width) * 100}%`, top: `${(calibPoint1.y / overlayRef.current.height) * 100}%`, width: '16px', height: '16px', marginLeft: '-8px', marginTop: '-8px', background: '#f97316', borderRadius: '50%', border: '2px solid #fff', boxShadow: '0 0 8px rgba(0,0,0,0.5)', pointerEvents: 'none' }} />
+        )}
+        {calibPoint2 && overlayRef.current && (
+          <div style={{ position: 'absolute', left: `${(calibPoint2.x / overlayRef.current.width) * 100}%`, top: `${(calibPoint2.y / overlayRef.current.height) * 100}%`, width: '16px', height: '16px', marginLeft: '-8px', marginTop: '-8px', background: '#30d158', borderRadius: '50%', border: '2px solid #fff', boxShadow: '0 0 8px rgba(0,0,0,0.5)', pointerEvents: 'none' }} />
+        )}
 
         {/* Speed flash overlay */}
         {showFlash && (
@@ -449,8 +491,9 @@ export default function SpeedCameraPage({ params }: PageProps) {
           {/* Calibration panel */}
           {showCalib && (
             <div style={{ background: 'rgba(30,30,30,0.95)', borderRadius: '12px', padding: '12px 14px', marginBottom: '12px', border: '1px solid rgba(255,255,255,.1)' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: '12px' }}>
-                📐 Calibration
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,.5)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>📐 Calibration</span>
+                <span style={{ color: '#fff' }}>{pitchPx}px</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
                 <div style={{ fontSize: '12px', color: 'rgba(255,255,255,.7)', whiteSpace: 'nowrap' }}>Pitch Length (m)</div>
@@ -465,21 +508,19 @@ export default function SpeedCameraPage({ params }: PageProps) {
                   step="0.1"
                 />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="range" min="50" max="600" value={pitchPx}
-                  onChange={e => {
-                    const v = parseInt(e.target.value);
-                    setPitchPx(v);
-                    workerRef.current?.postMessage({ type: 'calibrate', data: { pixelsPerMeter: v / pitchLengthM } });
-                  }}
-                  style={{ flex: 1, accentColor: '#E31B23' }}
-                />
-                <div style={{ fontSize: '13px', color: '#fff', fontWeight: 700, whiteSpace: 'nowrap' }}>{pitchPx}px</div>
-              </div>
-              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,.3)', marginTop: '8px' }}>
-                Adjust slider until it matches the {pitchLengthM}m pitch visible in camera
-              </div>
+
+              {calibState === 'idle' || calibState === 'done' ? (
+                <button
+                  onClick={() => { setCalibState('point1'); setCalibPoint1(null); setCalibPoint2(null); }}
+                  style={{ width: '100%', background: 'rgba(48,209,88,0.2)', border: '1px solid rgba(48,209,88,0.5)', color: '#30d158', padding: '8px', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Tap to Set Wickets
+                </button>
+              ) : (
+                <div style={{ background: 'rgba(249,115,22,0.2)', border: '1px solid rgba(249,115,22,0.5)', color: '#f97316', padding: '8px', borderRadius: '6px', textAlign: 'center', fontWeight: 700, fontSize: '13px' }}>
+                  {calibState === 'point1' ? 'Tap Bowler\'s Wicket' : 'Tap Batsman\'s Wicket'}
+                </div>
+              )}
             </div>
           )}
 
