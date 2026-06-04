@@ -88,10 +88,15 @@ async function initModel() {
   }
 }
 
+let preallocatedTensor = null;
+
 // ── Preprocessing: ImageData → Float32 NCHW tensor ──
 function preprocess(imageData) {
   const { width, height, data } = imageData;
-  const tensor = new Float32Array(3 * MODEL_INPUT_W * MODEL_INPUT_H);
+  if (!preallocatedTensor) {
+    preallocatedTensor = new Float32Array(3 * MODEL_INPUT_W * MODEL_INPUT_H);
+  }
+  const tensor = preallocatedTensor;
   const scaleX = MODEL_INPUT_W / width;
   const scaleY = MODEL_INPUT_H / height;
   const scaledW = Math.min(MODEL_INPUT_W, Math.round(width * Math.min(scaleX, scaleY)));
@@ -140,8 +145,9 @@ function parseDetections(output, offsetX, offsetY, scaledW, scaledH, imgW, imgH)
     }
 
     if (maxConf < CONF_THRESH) continue;
-    // For generic sports-ball model, accept all classes with high conf
-    // For cricket-specific model, filter: if (maxClass !== 0) continue;
+    
+    // STRICTLY filter for the sports ball class (32)
+    if (maxClass !== BALL_CLASS) continue;
 
     // Convert from 640x640 letterboxed back to original image coords
     const x1 = ((cx - w/2 - offsetX) / scaledW) * imgW;
@@ -289,6 +295,12 @@ onmessage = async (e) => {
 
       // 3. Parse detections
       const dets = parseDetections(output, offsetX, offsetY, scaledW, scaledH, width, height);
+
+      // Clean up GPU memory immediately to prevent Safari from crashing due to OOM
+      if (inputTensor.dispose) inputTensor.dispose();
+      for (const key in results) {
+        if (results[key].dispose) results[key].dispose();
+      }
 
       // 4. Kalman filter
       let trackedBox = null;
