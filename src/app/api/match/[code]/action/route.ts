@@ -599,11 +599,31 @@ export async function POST(
       if (sessionName !== undefined) {
         await supabase.from('sessions').update({ name: sessionName }).eq('id', session.id);
       }
-      if (matchId && overs) {
-        const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
-        // Only update overs if match hasn't started innings yet
-        if (m && ['setup', 'toss'].includes(m.status)) {
-          await supabase.from('matches').update({ overs }).eq('id', matchId);
+      if (overs !== undefined && overs !== null && overs > 0) {
+        // If we have a specific matchId, update it directly — but verify innings haven't started
+        if (matchId) {
+          const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
+          // Allow overs update for any pre-game status (toss, setup, lobby, etc.)
+          // Only block once an actual innings is in progress
+          const lockedStatuses = ['innings_1', 'innings_2', 'result'];
+          if (m && !lockedStatuses.includes(m.status)) {
+            await supabase.from('matches').update({ overs }).eq('id', matchId);
+          }
+        } else {
+          // No specific matchId — update the most recent match for this session
+          const { data: latestMatch } = await supabase
+            .from('matches')
+            .select('id, status')
+            .eq('session_id', session.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (latestMatch) {
+            const lockedStatuses = ['innings_1', 'innings_2', 'result'];
+            if (!lockedStatuses.includes(latestMatch.status)) {
+              await supabase.from('matches').update({ overs }).eq('id', latestMatch.id);
+            }
+          }
         }
       }
       return NextResponse.json({ success: true });
