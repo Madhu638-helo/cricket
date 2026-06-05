@@ -240,20 +240,20 @@ model rankings {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model sessions {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code       String    @unique @db.VarChar(6)
-  name       String?
-  status     String    @default("lobby")
-  owner_id   String?   @db.Uuid
-  created_at DateTime  @default(now()) @db.Timestamptz(6)
-  ground     String?
-  match_date DateTime? @db.Date
-  match_time DateTime? @db.Time(6)
-  matches    matches[]
-  players    players[]
-  score_tickers score_tickers[]
-  user       User?     @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
-  teams      teams[]
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String         @unique @db.VarChar(6)
+  name          String?
+  status        String         @default("lobby")
+  owner_id      String?        @db.Uuid
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  ground        String?
+  match_date    DateTime?      @db.Date
+  match_time    DateTime?      @db.Time(6)
+  matches       matches[]
+  players       players[]
+  score_tickers score_tickers?
+  user          User?          @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+  teams         teams[]
 }
 
 model score_tickers {
@@ -309,5 +309,6 @@ model User {
   rankings              rankings[]
   sessions              sessions[]
 
+  @@index([id])
   @@map("users")
 }

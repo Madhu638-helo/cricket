@@ -600,12 +600,11 @@ export async function POST(
         await supabase.from('sessions').update({ name: sessionName }).eq('id', session.id);
       }
       if (overs !== undefined && overs !== null && overs > 0) {
-        // If we have a specific matchId, update it directly — but verify innings haven't started
+        // If we have a specific matchId, update it directly
         if (matchId) {
           const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
-          // Allow overs update for any pre-game status (toss, setup, lobby, etc.)
-          // Only block once an actual innings is in progress
-          const lockedStatuses = ['innings_1', 'innings_2', 'result'];
+          // Allow overs update mid-game to extend the match. Only block if the match is already completely finished.
+          const lockedStatuses = ['result'];
           if (m && !lockedStatuses.includes(m.status)) {
             await supabase.from('matches').update({ overs }).eq('id', matchId);
           }
@@ -619,7 +618,7 @@ export async function POST(
             .limit(1)
             .maybeSingle();
           if (latestMatch) {
-            const lockedStatuses = ['innings_1', 'innings_2', 'result'];
+            const lockedStatuses = ['result'];
             if (!lockedStatuses.includes(latestMatch.status)) {
               await supabase.from('matches').update({ overs }).eq('id', latestMatch.id);
             }
