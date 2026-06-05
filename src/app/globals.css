@@ -524,3 +524,42 @@ dialog:not([open]){display:none}
 /* ── Worm graph ── */
 .worm-container{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:14px;overflow:hidden}
 .worm-svg{width:100%;height:auto;display:block}
+
+/* ── Generic Buttons ── */
+.icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+  color: var(--muted);
+}
+@media (hover: hover) {
+  .icon-btn:hover { background: var(--s2); }
+}
+.icon-btn:active { background: var(--s3); }
+
+.dropdown-btn {
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  color: var(--txt);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.1s ease;
+}
+@media (hover: hover) {
+  .dropdown-btn:hover { background: var(--s3); }
+}
+.dropdown-btn:active { background: var(--border); }
+.dropdown-btn.danger { color: var(--red); }

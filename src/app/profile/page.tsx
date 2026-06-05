@@ -128,14 +128,10 @@ export default function ProfilePage() {
           <div ref={menuRef} style={{ position: 'relative' }}>
             <button
               onClick={() => setMenuOpen(o => !o)}
-              style={{
-                background: 'transparent', border: 'none', cursor: 'pointer',
-                padding: '6px', borderRadius: '8px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
+              className="icon-btn"
               aria-label="Profile menu"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--muted)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 <circle cx="12" cy="5" r="2" />
                 <circle cx="12" cy="12" r="2" />
                 <circle cx="12" cy="19" r="2" />
@@ -148,15 +144,12 @@ export default function ProfilePage() {
                 background: 'var(--s2)', border: '1px solid var(--border2)', borderRadius: '12px',
                 overflow: 'hidden', minWidth: '160px', zIndex: 100,
                 boxShadow: '0 8px 32px rgba(0,0,0,.2)',
+                display: 'flex', flexDirection: 'column'
               }}>
                 <button
                   onClick={() => { setMenuOpen(false); router.push('/profile/edit'); }}
-                  style={{
-                    width: '100%', padding: '12px 16px', background: 'transparent', border: 'none',
-                    color: 'var(--txt)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-                    textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px',
-                    borderBottom: '1px solid var(--border)',
-                  }}
+                  className="dropdown-btn"
+                  style={{ borderBottom: '1px solid var(--border)' }}
                 >
                   <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -165,11 +158,7 @@ export default function ProfilePage() {
                 </button>
                 <button
                   onClick={() => { setMenuOpen(false); signOut(); }}
-                  style={{
-                    width: '100%', padding: '12px 16px', background: 'transparent', border: 'none',
-                    color: 'var(--red)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-                    textAlign: 'left', display: 'flex', alignItems: 'center', gap: '10px',
-                  }}
+                  className="dropdown-btn danger"
                 >
                   <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
