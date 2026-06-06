@@ -10,6 +10,7 @@ import FallOfWickets from '@/components/scoring/FallOfWickets';
 import ManhattanChart from '@/components/scoring/ManhattanChart';
 import WormGraph from '@/components/scoring/WormGraph';
 import ManageTeamsSheet from '@/components/sheets/ManageTeamsSheet';
+import InningsBreakSheet from '@/components/sheets/InningsBreakSheet';
 import { useRouter } from 'next/navigation';
 
 interface SpectatorViewProps {
@@ -123,6 +124,7 @@ export default function SpectatorView({
   const [activeTab, setActiveTab] = useState<'live' | 'stats' | 'scorecard'>('live');
   const [playAgainOvers, setPlayAgainOvers] = useState<number>(0); // 0 = inherit from match
   const [showManageTeams, setShowManageTeams] = useState(false);
+  const [showInningsBreak, setShowInningsBreak] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
 
   // Keep activeInningsId in sync when new innings starts
@@ -143,10 +145,60 @@ export default function SpectatorView({
 
   const displayInnings = inningsList.find(i => i.id === activeInningsId) || currentInnings;
   if (!displayInnings) {
+    const prevCompleted = inningsList.find(i => i.status === 'complete') ?? null;
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: '12px' }}>
-        <div style={{ fontSize: '36px' }}>🏏</div>
-        <div style={{ color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '14px' }}>Waiting for match to start…</div>
+      <div style={{ minHeight: '100dvh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', padding: '24px' }}>
+        {match.status === 'innings_break' && prevCompleted ? (
+          <>
+            <div style={{ fontSize: '36px' }}>☕</div>
+            <div style={{ fontSize: '18px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', color: 'var(--txt)' }}>Innings Break</div>
+            <div style={{ fontSize: '13px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>
+              Target: {prevCompleted.total_runs + 1} runs
+            </div>
+            {isOwner && code && (
+              <button
+                onClick={() => setShowInningsBreak(true)}
+                style={{ background: 'var(--live)', color: '#fff', border: 'none', borderRadius: '12px', padding: '13px 28px', fontSize: '15px', fontWeight: 800, cursor: 'pointer', fontFamily: 'Barlow, sans-serif', marginTop: '8px' }}
+              >
+                Start 2nd Innings →
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: '36px' }}>🏏</div>
+            <div style={{ color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '14px' }}>Waiting for match to start…</div>
+          </>
+        )}
+        {/* InningsBreakSheet for owner in SpectatorView */}
+        {isOwner && code && showInningsBreak && prevCompleted && team1Obj && team2Obj && (
+          <InningsBreakSheet
+            open={showInningsBreak}
+            target={prevCompleted.total_runs + 1}
+            team1Runs={prevCompleted.total_runs}
+            team1Name={prevCompleted.team_id === team1Obj.id ? team1Obj.name : team2Obj.name}
+            team2Name={prevCompleted.team_id === team1Obj.id ? team2Obj.name : team1Obj.name}
+            overs={match.overs}
+            battingPlayers={players.filter(p => p.team_id !== prevCompleted.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
+            bowlingPlayers={players.filter(p => p.team_id === prevCompleted.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
+            onStartInnings2={async (opener1, opener2, bowler) => {
+              const inn2TeamId = prevCompleted.team_id === match.team1_id ? match.team2_id : match.team1_id;
+              await fetch(`/api/match/${code}/action`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'start_innings_2',
+                  data: {
+                    matchId: match.id,
+                    battingTeamId: inn2TeamId,
+                    opener1Id: opener1, opener2Id: opener2, bowlerId: bowler,
+                    target: prevCompleted.total_runs + 1,
+                  },
+                }),
+              });
+              setShowInningsBreak(false);
+            }}
+          />
+        )}
       </div>
     );
   }

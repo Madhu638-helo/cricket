@@ -81,22 +81,32 @@ export default function MatchPage({ params }: PageProps) {
     }
   }, [match?.id, match?.status]);
 
+  const meRef = React.useRef<{ id: string; name: string } | null>(null);
+
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then(r => r.json())
-      .then(({ user }) => {
-        if (!user) return;
-        setPlayerName(user.name);
-        if (session) setIsOwner(user.id === session.owner_id);
-        
-        const me = players.find(p => p.user_id === user.id);
-        const activeInnings = innings.find(i => i.status === 'active');
-        // Only the batting team's designated scorer can log scores
-        // Owner is NOT a scorer — they can only admin (restart/pause/cancel)
-        const isBattingTeamScorer = !!(me?.is_scorer && activeInnings && me?.team_id === activeInnings.team_id);
-        setIsScorer(isBattingTeamScorer);
-      })
-      .catch(() => {});
+    // Only re-fetch /api/auth/me once (or when session changes owner_id).
+    // Caching prevents a new network round-trip on every players/innings change
+    // which caused a multi-second delay before isScorer settled.
+    const fetchMe = async () => {
+      if (!meRef.current) {
+        try {
+          const r = await fetch('/api/auth/me');
+          const { user } = await r.json();
+          // Always resolve isScorer — never leave it as null (infinite spinner).
+          if (!user) { setIsScorer(false); return; }
+          meRef.current = { id: user.id, name: user.name };
+          setPlayerName(user.name);
+        } catch { setIsScorer(false); return; }
+      }
+      const user = meRef.current;
+      if (!user) { setIsScorer(false); return; }
+      if (session) setIsOwner(user.id === session.owner_id);
+      const me = players.find(p => p.user_id === user.id);
+      const activeInnings = innings.find(i => i.status === 'active');
+      const isBattingTeamScorer = !!(me?.is_scorer && activeInnings && me?.team_id === activeInnings.team_id);
+      setIsScorer(isBattingTeamScorer);
+    };
+    fetchMe();
   }, [session, players, innings]);
 
   // Reset local state when match changes (e.g., "Play Again" creates a new match)
@@ -318,7 +328,7 @@ export default function MatchPage({ params }: PageProps) {
     const newPending = [...pendingBalls, newBall];
     setPendingBalls(newPending);
 
-    // Broadcast live score to all viewers per ball
+    // Broadcast live score + ball data to all viewers per ball
     if (currentInnings) {
       const totalPR = newPending.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
       const totalPW = newPending.filter(b => b.is_wicket).length;
@@ -328,6 +338,7 @@ export default function MatchPage({ params }: PageProps) {
         currentInnings.total_runs + totalPR,
         currentInnings.total_wickets + totalPW,
         currentInnings.total_balls + totalPL,
+        newBall,
       );
     }
 
@@ -477,7 +488,12 @@ export default function MatchPage({ params }: PageProps) {
     );
   }
 
-  if (!isScorer) {
+  // During innings_break, owner must stay in scoring view to access InningsBreakSheet.
+  // Without this, isScorer→false (no active innings) would flip owner to SpectatorView
+  // and InningsBreakSheet would never be reachable — match stuck permanently.
+  const ownerDuringBreak = isOwner && match.status === 'innings_break';
+
+  if (!isScorer && !ownerDuringBreak) {
     return (
       <ErrorBoundary>
         <SpectatorView
@@ -717,7 +733,7 @@ export default function MatchPage({ params }: PageProps) {
                 </div>
               )}
               {(strikerStats || bowlerStats) && (
-                <PlayerStatsCard 
+                <PlayerStatsCard
                   striker={strikerStats}
                   nonStriker={nonStrikerStats}
                   bowler={bowlerStats}
@@ -725,6 +741,26 @@ export default function MatchPage({ params }: PageProps) {
                   maxBallsPerOver={match.overs > 0 ? 6 : 6}
                   currentOverNum={currentOverNum + 1}
                 />
+              )}
+
+              {/* Change player buttons — only available between overs (no pending balls) */}
+              {isScorer && currentInnings?.status === 'active' && pendingBalls.length === 0 && strikerId && bowlerId && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setShowBatsman(true)}
+                    style={{ flex: 1, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', color: 'var(--muted)', borderRadius: '8px', padding: '7px 10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                  >↺ Striker</button>
+                  {nonStrikerId && nonStrikerId !== 'single' && (
+                    <button
+                      onClick={() => setShowNonStriker(true)}
+                      style={{ flex: 1, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', color: 'var(--muted)', borderRadius: '8px', padding: '7px 10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                    >↺ Non-Striker</button>
+                  )}
+                  <button
+                    onClick={() => setShowBowler(true)}
+                    style={{ flex: 1, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)', color: 'var(--muted)', borderRadius: '8px', padding: '7px 10px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                  >↺ Bowler</button>
+                </div>
               )}
 
               {/* Scoring pad (scorer only) */}

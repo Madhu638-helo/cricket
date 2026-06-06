@@ -63,6 +63,12 @@ export default function SpeedCameraPage({ params }: PageProps) {
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const workerReadyRef = useRef(false);
+  // Throttle: don't queue frames faster than the worker can process them
+  const workerBusyRef = useRef(false);
+  // Track last state values to avoid redundant React re-renders on every frame
+  const lastFpsRef = useRef(0);
+  const lastPhaseRef = useRef<WorkerPhase>('idle');
+  const lastDetectedRef = useRef(false);
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'running' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -217,28 +223,24 @@ export default function SpeedCameraPage({ params }: PageProps) {
 
   // ── Main frame capture loop ──
   const captureLoop = useCallback(() => {
+    animFrameRef.current = requestAnimationFrame(captureLoop);
+
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || !workerReadyRef.current) {
-      animFrameRef.current = requestAnimationFrame(captureLoop);
-      return;
-    }
+    if (!video || !canvas || !workerReadyRef.current) return;
+    if (workerBusyRef.current) return; // skip frame — worker still processing previous
 
     const ctx = canvas.getContext('2d');
-    if (!ctx || video.readyState < 2) {
-      animFrameRef.current = requestAnimationFrame(captureLoop);
-      return;
-    }
+    if (!ctx || video.readyState < 2) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
+    workerBusyRef.current = true;
     workerRef.current?.postMessage({
       type: 'frame',
       data: { imageData, width: canvas.width, height: canvas.height, timestamp: performance.now() },
     }, [imageData.data.buffer]);
-
-    animFrameRef.current = requestAnimationFrame(captureLoop);
   }, []);
 
   // ── Start camera ──
@@ -280,6 +282,9 @@ export default function SpeedCameraPage({ params }: PageProps) {
 
       worker.onmessage = (e: MessageEvent<WorkerResult>) => {
         const msg = e.data;
+        // Unblock frame capture regardless of message type
+        workerBusyRef.current = false;
+
         if (msg.type === 'ready') {
           clearInterval(prog);
           setLoadProgress(100);
@@ -291,16 +296,20 @@ export default function SpeedCameraPage({ params }: PageProps) {
             animFrameRef.current = requestAnimationFrame(captureLoop);
           }, 400);
         } else if (msg.type === 'result') {
-          setFps(msg.fps ?? 0);
-          setPhase(msg.phase ?? 'idle');
-          setDetectedBall(!!msg.trackedBox);
+          // Only update React state when values actually change — avoids 60 re-renders/sec
+          const newFps = msg.fps ?? 0;
+          const newPhase = msg.phase ?? 'idle';
+          const newDetected = !!msg.trackedBox;
+          if (Math.abs(newFps - lastFpsRef.current) >= 2) { lastFpsRef.current = newFps; setFps(newFps); }
+          if (newPhase !== lastPhaseRef.current) { lastPhaseRef.current = newPhase; setPhase(newPhase); }
+          if (newDetected !== lastDetectedRef.current) { lastDetectedRef.current = newDetected; setDetectedBall(newDetected); }
+
           if (msg.speed_kmh) {
             setSpeedKmh(msg.speed_kmh);
             setLastSpeeds(prev => [msg.speed_kmh!, ...prev].slice(0, 8));
             if (msg.phase === 'result') {
               setShowFlash(true);
               setTimeout(() => setShowFlash(false), 1500);
-              // Auto-broadcast when a speed result is confirmed
               broadcastSpeed(msg.speed_kmh);
             }
           }
@@ -327,12 +336,16 @@ export default function SpeedCameraPage({ params }: PageProps) {
     workerRef.current?.terminate();
     workerRef.current = null;
     workerReadyRef.current = false;
+    workerBusyRef.current = false;
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
     setStatus('idle');
     setModelReady(false);
     setSpeedKmh(null);
     setPhase('idle');
+    lastFpsRef.current = 0;
+    lastPhaseRef.current = 'idle';
+    lastDetectedRef.current = false;
   };
 
   const resetBall = () => {

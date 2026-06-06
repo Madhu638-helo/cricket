@@ -13,8 +13,8 @@ export interface RealtimeMatchData {
   loading: boolean;
   error: string | null;
   pendingSpeeds: number[];
-  /** Broadcast live score update to all viewers (scorer calls this per ball) */
-  sendScoreUpdate: (inningsId: string, runs: number, wickets: number, balls: number) => void;
+  /** Broadcast live score + ball data to all viewers (scorer calls this per ball) */
+  sendScoreUpdate: (inningsId: string, runs: number, wickets: number, balls: number, ball?: any) => void;
   clearPendingSpeeds: () => void;
 }
 
@@ -64,13 +64,12 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
     // Use a stable channel name (no Date.now()) to avoid leaking channels on re-renders.
     // Each unique matchCode gets exactly one Supabase realtime channel.
     const channel = supabase.channel(`match:${matchCode}`)
-      // Per-ball score broadcast from scorer — updates innings totals instantly for all viewers
+      // Per-ball score broadcast from scorer — updates innings totals + appends ball for viewers
       .on('broadcast', { event: 'score_update' }, (payload: any) => {
-        const { innings_id, runs, wickets, balls } = payload.payload ?? {};
+        const { innings_id, runs, wickets, balls, ball } = payload.payload ?? {};
         if (!innings_id) return;
-        setData(prev => ({
-          ...prev,
-          innings: prev.innings.map(i =>
+        setData(prev => {
+          const nextInnings = prev.innings.map(i =>
             i.id === innings_id
               ? {
                   ...i,
@@ -79,8 +78,22 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
                   total_balls: Math.max(i.total_balls, balls),
                 }
               : i
-          ),
-        }));
+          );
+          // Add the ball to the live feed if it's new (no real id yet — dedup by delivery_number)
+          let nextBalls = prev.balls;
+          if (ball && ball.innings_id) {
+            const alreadyHave = prev.balls.some(
+              b => b.innings_id === ball.innings_id &&
+                   b.over_number === ball.over_number &&
+                   b.delivery_number === ball.delivery_number
+            );
+            if (!alreadyHave) {
+              // Assign a temp id so React keys don't collide; real id arrives via score_tickers
+              nextBalls = [...prev.balls, { ...ball, id: ball.id ?? `tmp_${ball.innings_id}_${ball.delivery_number}` }] as Ball[];
+            }
+          }
+          return { ...prev, innings: nextInnings, balls: nextBalls };
+        });
       })
       // Listen for ball speed broadcasts from the Speed Cam page (from this device or others)
       .on('broadcast', { event: 'ball_speed' }, (payload: any) => {
@@ -137,14 +150,22 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
           setData(prev => {
             let nextState = { ...prev };
 
-            // Handle bulk balls
+            // Handle bulk balls — replace any matching temp balls from live broadcast
             if (new_balls && Array.isArray(new_balls)) {
               const inningsIds = prev.innings.map(i => i.id);
               const validBalls = new_balls.filter((b: any) => inningsIds.includes(b.innings_id));
-              const existingIds = new Set(prev.balls.map(b => b.id));
-              const uniqueNewBalls = validBalls.filter((b: any) => !existingIds.has(b.id));
-              if (uniqueNewBalls.length > 0) {
-                nextState.balls = [...prev.balls, ...uniqueNewBalls] as Ball[];
+              if (validBalls.length > 0) {
+                // Remove temp balls (no real UUID, keyed by delivery_number) that are now in DB
+                const dbKeys = new Set(validBalls.map((b: any) => `${b.innings_id}_${b.delivery_number}`));
+                const withoutStale = prev.balls.filter(b =>
+                  !String(b.id).startsWith('tmp_') ||
+                  !dbKeys.has(`${b.innings_id}_${(b as any).delivery_number}`)
+                );
+                const existingIds = new Set(withoutStale.map(b => b.id));
+                const uniqueNew = validBalls.filter((b: any) => !existingIds.has(b.id));
+                if (uniqueNew.length > 0 || withoutStale.length !== prev.balls.length) {
+                  nextState.balls = [...withoutStale, ...uniqueNew] as Ball[];
+                }
               }
             }
 
@@ -175,17 +196,20 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
           ]);
           setData(prev => ({ ...prev, players: players ?? prev.players, teams: teams ?? prev.teams }));
         })
-      .subscribe();
+      .subscribe((status: string) => {
+        // Resync when connection is (re)established — catches events missed while subscribing
+        if (status === 'SUBSCRIBED') fetchInitial();
+      });
 
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); channelRef.current = null; };
   }, [matchCode, fetchInitial]);
 
-  const sendScoreUpdate = useCallback((inningsId: string, runs: number, wickets: number, balls: number) => {
+  const sendScoreUpdate = useCallback((inningsId: string, runs: number, wickets: number, balls: number, ball?: any) => {
     channelRef.current?.send({
       type: 'broadcast',
       event: 'score_update',
-      payload: { innings_id: inningsId, runs, wickets, balls },
+      payload: { innings_id: inningsId, runs, wickets, balls, ball },
     });
   }, []);
 
