@@ -1,4 +1,5 @@
 'use client';
+import React, { useMemo } from 'react';
 import type { Player, Ball } from '@/types/cricket';
 import { calcBowlerStats, formatOvers } from '@/lib/cricket/engine';
 
@@ -7,14 +8,15 @@ interface BowlingTableProps {
   balls: Ball[];
 }
 
-export default function BowlingTable({ players, balls }: BowlingTableProps) {
-  const stats = players
+const BowlingTable = React.memo(({ players, balls }: BowlingTableProps) => {
+  const stats = useMemo(() => players
     .map(p => calcBowlerStats(p, balls))
     .filter(s => {
       const legalBalls = balls.filter(b => b.bowler_id === s.player.id && b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
       return legalBalls > 0 || s.wides > 0 || s.noBalls > 0;
     })
-    .sort((a, b) => b.wickets - a.wickets || a.economy - b.economy);
+    .sort((a, b) => b.wickets - a.wickets || a.economy - b.economy),
+  [players, balls]);
 
   if (stats.length === 0) return null;
 
@@ -51,4 +53,6 @@ export default function BowlingTable({ players, balls }: BowlingTableProps) {
       </tbody>
     </table>
   );
-}
+});
+
+export default BowlingTable;

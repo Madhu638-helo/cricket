@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import type { OverSummary } from '@/types/cricket';
 
 interface WormGraphProps {
@@ -9,7 +10,7 @@ interface WormGraphProps {
   team2Name?: string;
 }
 
-export default function WormGraph({ team1Overs, team2Overs, totalOvers, team1Name = 'Team A', team2Name = 'Team B' }: WormGraphProps) {
+function WormGraph({ team1Overs, team2Overs, totalOvers, team1Name = 'Team A', team2Name = 'Team B' }: WormGraphProps) {
   const W = 320;
   const H = 120;
   const PAD = { top: 10, right: 12, bottom: 24, left: 32 };
@@ -149,3 +150,5 @@ export default function WormGraph({ team1Overs, team2Overs, totalOvers, team1Nam
     </div>
   );
 }
+
+export default React.memo(WormGraph);

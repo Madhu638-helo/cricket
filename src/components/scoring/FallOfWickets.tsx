@@ -6,7 +6,7 @@ interface FallOfWicketsProps {
   balls: Ball[];
 }
 
-export default function FallOfWickets({ balls }: FallOfWicketsProps) {
+function FallOfWickets({ balls }: FallOfWicketsProps) {
   const fows: { runs: number; wickets: number; overString: string }[] = [];
   let currentRuns = 0;
   let currentWickets = 0;
@@ -54,3 +54,5 @@ export default function FallOfWickets({ balls }: FallOfWicketsProps) {
     </div>
   );
 }
+
+export default React.memo(FallOfWickets);

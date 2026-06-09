@@ -1,4 +1,5 @@
 'use client';
+import React, { useMemo } from 'react';
 import type { Player, Ball } from '@/types/cricket';
 import { calcBatsmanStats } from '@/lib/cricket/engine';
 
@@ -8,16 +9,16 @@ interface BattingTableProps {
   strikerId: string;
 }
 
-export default function BattingTable({ players, balls, strikerId }: BattingTableProps) {
-  const stats = players.map(p => ({
+const BattingTable = React.memo(({ players, balls, strikerId }: BattingTableProps) => {
+  const stats = useMemo(() => players.map(p => ({
     ...calcBatsmanStats(
       p, balls, p.id === strikerId,
       balls.find(b => b.is_wicket && b.batsman_id === p.id)
     ),
-  }));
+  })), [players, balls, strikerId]);
 
-  const batted = stats.filter(s => s.balls > 0 || s.isOut);
-  const dnb = stats.filter(s => s.balls === 0 && !s.isOut);
+  const batted = useMemo(() => stats.filter(s => s.balls > 0 || s.isOut), [stats]);
+  const dnb = useMemo(() => stats.filter(s => s.balls === 0 && !s.isOut), [stats]);
 
   return (
     <table className="score-table" aria-label="Batting scorecard">
@@ -67,4 +68,6 @@ export default function BattingTable({ players, balls, strikerId }: BattingTable
       </tbody>
     </table>
   );
-}
+});
+
+export default BattingTable;

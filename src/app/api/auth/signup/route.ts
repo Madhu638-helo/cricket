@@ -26,7 +26,11 @@ export async function POST(request: Request) {
     });
 
     await setUserSession(user.id, user.name, user.username, false);
-    return NextResponse.json({ success: true, redirect: '/' });
+    return NextResponse.json({ 
+      success: true, 
+      redirect: '/', 
+      user: { id: user.id, name: user.name, username: user.username } 
+    });
   } catch (error: any) {
     if (error.code === 'P2002')
       return NextResponse.json({ error: 'Username already taken.' }, { status: 400 });

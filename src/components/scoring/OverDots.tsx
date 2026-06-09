@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import type { BallSummary } from '@/types/cricket';
 
 interface OverDotsProps {
@@ -26,7 +27,7 @@ function getLabel(b: BallSummary): string {
   return String(b.runsOffBat + b.extras);
 }
 
-export default function OverDots({ balls, overNumber, maxBalls = 6 }: OverDotsProps) {
+function OverDots({ balls, overNumber, maxBalls = 6 }: OverDotsProps) {
   const legalCount = balls.filter(b => !b.isWide && !b.isNoBall).length;
   const emptySlots = Math.max(0, maxBalls - legalCount);
   const overRuns = balls.reduce((s, b) => s + b.runsOffBat + b.extras, 0);
@@ -62,3 +63,5 @@ export default function OverDots({ balls, overNumber, maxBalls = 6 }: OverDotsPr
     </div>
   );
 }
+
+export default React.memo(OverDots);

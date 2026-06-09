@@ -14,7 +14,7 @@ interface ScoringPadProps {
   disabled?: boolean;
 }
 
-export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, onEndOverEarly, isFreehitNext, canUndo, disabled }: ScoringPadProps) {
+function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, onEndOverEarly, isFreehitNext, canUndo, disabled }: ScoringPadProps) {
   const [noBallRuns, setNoBallRuns] = useState(0);
   const [showNoBallExtra, setShowNoBallExtra] = useState(false);
   const [showWideExtra, setShowWideExtra] = useState(false);
@@ -258,3 +258,5 @@ export default function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, o
     </div>
   );
 }
+
+export default React.memo(ScoringPad);

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Innings, Match, Team, Player, Ball } from '@/types/cricket';
 import { formatOvers, buildOverHistory, calcBatsmanStats, calcBowlerStats } from '@/lib/cricket/engine';
 import BattingTable from '@/components/scorecard/BattingTable';
@@ -85,7 +85,7 @@ function ballEvent(b: Ball, batsman: Player | undefined, bowler: Player | undefi
   return `${bat} picks up ${b.runs_off_bat} run${b.runs_off_bat > 1 ? 's' : ''}.`;
 }
 
-function LastBallHero({ ball, players }: { ball: Ball; players: Player[] }) {
+const LastBallHero = React.memo(({ ball, players }: { ball: Ball; players: Player[] }) => {
   const batsman = players.find(p => p.id === ball.batsman_id);
   const bowler = players.find(p => p.id === ball.bowler_id);
   const lbl = ballLabel(ball);
@@ -113,11 +113,11 @@ function LastBallHero({ ball, players }: { ball: Ball; players: Player[] }) {
       </div>
     </div>
   );
-}
+});
 
-export default function SpectatorView({
+const SpectatorView = React.memo(({
   match, inningsList, balls, players, team1Obj, team2Obj, isOwner, code, onBack
-}: SpectatorViewProps) {
+}: SpectatorViewProps) => {
   const router = useRouter();
   const currentInnings = inningsList.find(i => i.status === 'active') ?? inningsList[inningsList.length - 1] ?? null;
   const [activeInningsId, setActiveInningsId] = useState<string>(currentInnings?.id || '');
@@ -129,7 +129,9 @@ export default function SpectatorView({
 
   // Keep activeInningsId in sync when new innings starts
   useEffect(() => {
-    if (currentInnings && !activeInningsId) setActiveInningsId(currentInnings.id);
+    if (currentInnings && currentInnings.id !== activeInningsId) {
+      setActiveInningsId(currentInnings.id);
+    }
   }, [currentInnings?.id]);
 
   // Auto-scroll feed to top on new ball
@@ -206,36 +208,36 @@ export default function SpectatorView({
   const isCurrentInnings = displayInnings.id === currentInnings?.id;
   const isLive = match.status !== 'result';
 
-  const displayBalls = balls.filter(b => b.innings_id === displayInnings.id);
-  const sortedBalls = [...displayBalls].sort((a, b) =>
+  const displayBalls = useMemo(() => balls.filter(b => b.innings_id === displayInnings.id), [balls, displayInnings.id]);
+  const sortedBalls = useMemo(() => [...displayBalls].sort((a, b) =>
     (b.over_number * 10 + b.ball_number) - (a.over_number * 10 + a.ball_number)
-  );
+  ), [displayBalls]);
 
-  const overs = formatOvers(displayInnings.total_balls);
-  const battingTeamObj = displayInnings.team_id === team1Obj.id ? team1Obj : team2Obj;
-  const bowlingTeamObj = battingTeamObj.id === team1Obj.id ? team2Obj : team1Obj;
+  const overs = useMemo(() => formatOvers(displayInnings.total_balls), [displayInnings.total_balls]);
+  const battingTeamObj = useMemo(() => displayInnings.team_id === team1Obj.id ? team1Obj : team2Obj, [displayInnings.team_id, team1Obj, team2Obj]);
+  const bowlingTeamObj = useMemo(() => battingTeamObj.id === team1Obj.id ? team2Obj : team1Obj, [battingTeamObj.id, team1Obj, team2Obj]);
 
-  const crr = displayInnings.total_balls > 0
+  const crr = useMemo(() => displayInnings.total_balls > 0
     ? Math.round((displayInnings.total_runs / (displayInnings.total_balls / 6)) * 100) / 100
-    : 0;
+    : 0, [displayInnings.total_runs, displayInnings.total_balls]);
   const target = displayInnings.target ?? null;
-  const needed = target ? Math.max(0, target - displayInnings.total_runs) : null;
-  const ballsLeft = match.overs * 6 - displayInnings.total_balls;
-  const rrr = target && ballsLeft > 0
+  const needed = useMemo(() => target ? Math.max(0, target - displayInnings.total_runs) : null, [target, displayInnings.total_runs]);
+  const ballsLeft = useMemo(() => match.overs * 6 - displayInnings.total_balls, [match.overs, displayInnings.total_balls]);
+  const rrr = useMemo(() => target && ballsLeft > 0
     ? Math.round(((target - displayInnings.total_runs) / (ballsLeft / 6)) * 100) / 100
-    : null;
+    : null, [target, displayInnings.total_runs, ballsLeft]);
 
-  const battingPlayers = players.filter(p => p.team_id === displayInnings.team_id || p.is_joker);
-  const bowlingPlayers = players.filter(p => p.team_id === bowlingTeamObj.id || p.is_joker);
-  const overHistory = buildOverHistory(displayBalls);
+  const battingPlayers = useMemo(() => players.filter(p => p.team_id === displayInnings.team_id || p.is_joker), [players, displayInnings.team_id]);
+  const bowlingPlayers = useMemo(() => players.filter(p => p.team_id === bowlingTeamObj.id || p.is_joker), [players, bowlingTeamObj.id]);
+  const overHistory = useMemo(() => buildOverHistory(displayBalls), [displayBalls]);
 
-  const lastBall = displayBalls.length > 0 ? displayBalls[displayBalls.length - 1] : null;
-  const strikerId = isCurrentInnings && lastBall ? lastBall.batsman_id : '';
-  const currentBowlerId = isCurrentInnings && lastBall ? lastBall.bowler_id : '';
+  const lastBall = useMemo(() => displayBalls.length > 0 ? displayBalls[displayBalls.length - 1] : null, [displayBalls]);
+  const strikerId = useMemo(() => isCurrentInnings && lastBall ? lastBall.batsman_id : '', [isCurrentInnings, lastBall]);
+  const currentBowlerId = useMemo(() => isCurrentInnings && lastBall ? lastBall.bowler_id : '', [isCurrentInnings, lastBall]);
 
-  const currentOverNum = Math.floor(displayInnings.total_balls / 6);
+  const currentOverNum = useMemo(() => Math.floor(displayInnings.total_balls / 6), [displayInnings.total_balls]);
 
-  const prevInnings = inningsList.find(i => i.status === 'complete') ?? null;
+  const prevInnings = useMemo(() => inningsList.find(i => i.status === 'complete') ?? null, [inningsList]);
 
   // Tab button style helper
   const tabStyle = (t: string) => ({
@@ -716,4 +718,6 @@ export default function SpectatorView({
       )}
     </div>
   );
-}
+});
+
+export default SpectatorView;

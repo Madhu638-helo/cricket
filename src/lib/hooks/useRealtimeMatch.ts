@@ -20,100 +20,106 @@ export interface RealtimeMatchData {
 
 export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
   // Memoize the client in a ref — createClient() must not be called on every render
-  // or it will cause the useEffect subscription to teardown/re-subscribe continuously.
   const supabaseRef = useRef(createClient());
   const supabase = supabaseRef.current;
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const [data, setData] = useState<Omit<RealtimeMatchData, 'sendScoreUpdate' | 'clearPendingSpeeds'>>({
-    session: null, match: null, innings: [], balls: [], players: [], teams: [], loading: true, error: null, pendingSpeeds: []
-  });
+  // ── Split state for granular updates ──────────────────────────
+  const [session, setSession] = useState<any | null>(null);
+  const [match, setMatch] = useState<Match | null>(null);
+  const [innings, setInnings] = useState<Innings[]>([]);
+  const [balls, setBalls] = useState<Ball[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingSpeeds, setPendingSpeeds] = useState<number[]>([]);
+
   const sessionIdRef = useRef<string>('');
   const matchIdRef = useRef<string>('');
+  const hasSubscribedRef = useRef(false);
 
   const fetchInitial = useCallback(async () => {
-    const { data: session, error: se } = await supabase
+    const { data: sess, error: se } = await supabase
       .from('sessions').select('*').eq('code', matchCode).single();
-    if (se || !session) { setData(d => ({ ...d, loading: false, error: 'Session not found' })); return; }
+    if (se || !sess) { setLoading(false); setError('Session not found'); return; }
 
-    sessionIdRef.current = session.id;
+    sessionIdRef.current = sess.id;
+    setSession(sess);
 
-    const { data: match } = await supabase
-      .from('matches').select('*').eq('session_id', session.id)
+    const { data: m } = await supabase
+      .from('matches').select('*').eq('session_id', sess.id)
       .order('match_number', { ascending: false }).limit(1).single();
-    if (!match) { setData(d => ({ ...d, session, loading: false, error: 'No active match' })); return; }
+    if (!m) { setSession(sess); setLoading(false); setError('No active match'); return; }
 
-    matchIdRef.current = match.id;
+    matchIdRef.current = m.id;
 
-    const { data: innings } = await supabase.from('innings').select('*').eq('match_id', match.id);
-    const inningsIds = (innings ?? []).map((i: Innings) => i.id);
-    const [{ data: balls }, { data: players }, { data: teams }] = await Promise.all([
+    const { data: inn } = await supabase.from('innings').select('*').eq('match_id', m.id);
+    const inningsIds = (inn ?? []).map((i: Innings) => i.id);
+    const [{ data: b }, { data: p }, { data: t }] = await Promise.all([
       inningsIds.length
         ? supabase.from('balls').select('*').in('innings_id', inningsIds).order('created_at', { ascending: true })
         : { data: [] as Ball[] },
-      supabase.from('players').select('*').eq('session_id', session.id),
-      supabase.from('teams').select('*').eq('session_id', session.id),
+      supabase.from('players').select('*').eq('session_id', sess.id),
+      supabase.from('teams').select('*').eq('session_id', sess.id),
     ]);
 
-    setData(prev => ({ ...prev, session, match, innings: innings ?? [], balls: balls ?? [], players: players ?? [], teams: teams ?? [], loading: false, error: null }));
+    setMatch(m);
+    setInnings(inn ?? []);
+    setBalls(b ?? []);
+    setPlayers(p ?? []);
+    setTeams(t ?? []);
+    setLoading(false);
+    setError(null);
   }, [matchCode]);
 
   useEffect(() => {
     fetchInitial();
 
     // Use a stable channel name (no Date.now()) to avoid leaking channels on re-renders.
-    // Each unique matchCode gets exactly one Supabase realtime channel.
     const channel = supabase.channel(`match:${matchCode}`)
       // Per-ball score broadcast from scorer — updates innings totals + appends ball for viewers
       .on('broadcast', { event: 'score_update' }, (payload: any) => {
-        const { innings_id, runs, wickets, balls, ball } = payload.payload ?? {};
+        const { innings_id, runs, wickets, balls: totalBalls, ball } = payload.payload ?? {};
         if (!innings_id) return;
-        setData(prev => {
-          const nextInnings = prev.innings.map(i =>
-            i.id === innings_id
-              ? {
-                  ...i,
-                  total_runs: Math.max(i.total_runs, runs),
-                  total_wickets: Math.max(i.total_wickets, wickets),
-                  total_balls: Math.max(i.total_balls, balls),
-                }
-              : i
-          );
-          // Add the ball to the live feed if it's new (no real id yet — dedup by delivery_number)
-          let nextBalls = prev.balls;
-          if (ball && ball.innings_id) {
-            const alreadyHave = prev.balls.some(
+
+        setInnings(prev => prev.map(i =>
+          i.id === innings_id
+            ? {
+                ...i,
+                total_runs: Math.max(i.total_runs, runs),
+                total_wickets: Math.max(i.total_wickets, wickets),
+                total_balls: Math.max(i.total_balls, totalBalls),
+              }
+            : i
+        ));
+
+        // Add the ball to the live feed if it's new (dedup by delivery_number)
+        if (ball && ball.innings_id) {
+          setBalls(prev => {
+            const alreadyHave = prev.some(
               b => b.innings_id === ball.innings_id &&
                    b.over_number === ball.over_number &&
                    b.delivery_number === ball.delivery_number
             );
-            if (!alreadyHave) {
-              // Assign a temp id so React keys don't collide; real id arrives via score_tickers
-              nextBalls = [...prev.balls, { ...ball, id: ball.id ?? `tmp_${ball.innings_id}_${ball.delivery_number}` }] as Ball[];
-            }
-          }
-          return { ...prev, innings: nextInnings, balls: nextBalls };
-        });
-      })
-      // Listen for ball speed broadcasts from the Speed Cam page (from this device or others)
-      .on('broadcast', { event: 'ball_speed' }, (payload: any) => {
-        const kmh = payload.payload?.speed_kmh;
-        if (typeof kmh === 'number') {
-          setData(prev => {
-            // Keep last 10 readings max to prevent memory bloat, although it should be cleared per ball
-            const updated = [...prev.pendingSpeeds, kmh].slice(-10);
-            return { ...prev, pendingSpeeds: updated };
+            if (alreadyHave) return prev;
+            // Assign a temp id so React keys don't collide; real id arrives via score_tickers
+            return [...prev, { ...ball, id: ball.id ?? `tmp_${ball.innings_id}_${ball.delivery_number}` }] as Ball[];
           });
         }
       })
-      // Match status changes (pause, result, etc.) — refetch match row only
+      // Listen for ball speed broadcasts from the Speed Cam page
+      .on('broadcast', { event: 'ball_speed' }, (payload: any) => {
+        const kmh = payload.payload?.speed_kmh;
+        if (typeof kmh === 'number') {
+          setPendingSpeeds(prev => [...prev, kmh].slice(-10));
+        }
+      })
+      // Match status changes (pause, result, etc.) — update match in-place
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
         (payload: any) => {
           if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
-          setData(prev => ({
-            ...prev,
-            match: prev.match?.id === payload.new?.id ? { ...prev.match, ...payload.new } as Match : prev.match,
-          }));
+          setMatch(prev => prev?.id === payload.new?.id ? { ...prev, ...payload.new } as Match : prev);
         })
       // Match INSERT (new match started) — full refetch
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' },
@@ -121,14 +127,11 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
           if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
           fetchInitial();
         })
-      // Innings UPDATE — update score in-place (instant for all viewers)
+      // Innings UPDATE — update score in-place
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'innings' },
         (payload: any) => {
           if (payload.new?.match_id !== matchIdRef.current && matchIdRef.current) return;
-          setData(prev => ({
-            ...prev,
-            innings: prev.innings.map(i => i.id === payload.new?.id ? { ...i, ...payload.new } as Innings : i),
-          }));
+          setInnings(prev => prev.map(i => i.id === payload.new?.id ? { ...i, ...payload.new } as Innings : i));
         })
       // Innings INSERT (new innings) — full refetch
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'innings' },
@@ -147,75 +150,82 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
             return;
           }
 
-          setData(prev => {
-            let nextState = { ...prev };
+          // Handle bulk balls — replace any matching temp balls from live broadcast
+          if (new_balls && Array.isArray(new_balls)) {
+            setBalls(prev => {
+              const currentInningsIds = new Set<string>();
+              // We need to know valid innings IDs — get from the balls + new_balls themselves
+              prev.forEach(b => currentInningsIds.add(b.innings_id));
+              new_balls.forEach((b: any) => currentInningsIds.add(b.innings_id));
 
-            // Handle bulk balls — replace any matching temp balls from live broadcast
-            if (new_balls && Array.isArray(new_balls)) {
-              const inningsIds = prev.innings.map(i => i.id);
-              const validBalls = new_balls.filter((b: any) => inningsIds.includes(b.innings_id));
-              if (validBalls.length > 0) {
-                // Remove temp balls (no real UUID, keyed by delivery_number) that are now in DB
-                const dbKeys = new Set(validBalls.map((b: any) => `${b.innings_id}_${b.delivery_number}`));
-                const withoutStale = prev.balls.filter(b =>
-                  !String(b.id).startsWith('tmp_') ||
-                  !dbKeys.has(`${b.innings_id}_${(b as any).delivery_number}`)
-                );
-                const existingIds = new Set(withoutStale.map(b => b.id));
-                const uniqueNew = validBalls.filter((b: any) => !existingIds.has(b.id));
-                if (uniqueNew.length > 0 || withoutStale.length !== prev.balls.length) {
-                  nextState.balls = [...withoutStale, ...uniqueNew] as Ball[];
-                }
-              }
-            }
+              const validBalls = new_balls.filter((b: any) => currentInningsIds.has(b.innings_id));
+              if (validBalls.length === 0) return prev;
 
-            // Sync innings instantly
-            if (innings_update && innings_update.id) {
-              nextState.innings = nextState.innings.map(i =>
-                i.id === innings_update.id ? { ...i, ...innings_update } as Innings : i
+              // Remove temp balls that are now in DB
+              const dbKeys = new Set(validBalls.map((b: any) => `${b.innings_id}_${b.delivery_number}`));
+              const withoutStale = prev.filter(b =>
+                !String(b.id).startsWith('tmp_') ||
+                !dbKeys.has(`${b.innings_id}_${(b as any).delivery_number}`)
               );
-              // Gap detection: if DB says more legal balls than we have, a batch was lost
-              // (race condition when two overs submit in quick succession).
-              const ourBalls = nextState.balls.filter(b => b.innings_id === innings_update.id).length;
+              const existingIds = new Set(withoutStale.map(b => b.id));
+              const uniqueNew = validBalls.filter((b: any) => !existingIds.has(b.id));
+              if (uniqueNew.length > 0 || withoutStale.length !== prev.length) {
+                return [...withoutStale, ...uniqueNew] as Ball[];
+              }
+              return prev;
+            });
+          }
+
+          // Sync innings instantly
+          if (innings_update && innings_update.id) {
+            setInnings(prev => prev.map(i =>
+              i.id === innings_update.id ? { ...i, ...innings_update } as Innings : i
+            ));
+            // Gap detection: if DB says more legal balls than we have, a batch was lost
+            setBalls(prev => {
+              const ourBalls = prev.filter(b => b.innings_id === innings_update.id).length;
               if (innings_update.total_balls > ourBalls) {
-                // Defer fetchInitial outside of setData callback
                 setTimeout(() => fetchInitial(), 50);
               }
-            }
-
-            return nextState;
-          });
+              return prev;
+            });
+          }
         })
-      // Players change — only refetch players + teams, NOT full initial load
+      // Players change — only refetch players + teams
       .on('postgres_changes', { event: '*', schema: 'public', table: 'players' },
         async (payload: any) => {
           if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
-          const [{ data: players }, { data: teams }] = await Promise.all([
+          const [{ data: p }, { data: t }] = await Promise.all([
             supabase.from('players').select('*').eq('session_id', sessionIdRef.current),
             supabase.from('teams').select('*').eq('session_id', sessionIdRef.current),
           ]);
-          setData(prev => ({ ...prev, players: players ?? prev.players, teams: teams ?? prev.teams }));
+          if (p) setPlayers(p);
+          if (t) setTeams(t);
         })
       .subscribe((status: string) => {
-        // Resync when connection is (re)established — catches events missed while subscribing
-        if (status === 'SUBSCRIBED') fetchInitial();
+        // Only full-refetch on the very first SUBSCRIBED, not on reconnects.
+        // Reconnects replay missed postgres_changes events automatically.
+        if (status === 'SUBSCRIBED' && !hasSubscribedRef.current) {
+          hasSubscribedRef.current = true;
+          fetchInitial();
+        }
       });
 
     channelRef.current = channel;
-    return () => { supabase.removeChannel(channel); channelRef.current = null; };
+    return () => { supabase.removeChannel(channel); channelRef.current = null; hasSubscribedRef.current = false; };
   }, [matchCode, fetchInitial]);
 
-  const sendScoreUpdate = useCallback((inningsId: string, runs: number, wickets: number, balls: number, ball?: any) => {
+  const sendScoreUpdate = useCallback((inningsId: string, runs: number, wickets: number, totalBalls: number, ball?: any) => {
     channelRef.current?.send({
       type: 'broadcast',
       event: 'score_update',
-      payload: { innings_id: inningsId, runs, wickets, balls, ball },
+      payload: { innings_id: inningsId, runs, wickets, balls: totalBalls, ball },
     });
   }, []);
 
   const clearPendingSpeeds = useCallback(() => {
-    setData(prev => ({ ...prev, pendingSpeeds: [] }));
+    setPendingSpeeds([]);
   }, []);
 
-  return { ...data, sendScoreUpdate, clearPendingSpeeds };
+  return { session, match, innings, balls, players, teams, loading, error, pendingSpeeds, sendScoreUpdate, clearPendingSpeeds };
 }

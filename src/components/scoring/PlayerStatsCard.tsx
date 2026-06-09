@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import type { BatsmanStats, BowlerStats, BallSummary } from '@/types/cricket';
 
 interface PlayerStatsCardProps {
@@ -30,7 +31,7 @@ function ballLabel(b: BallSummary): string {
   return b.runsOffBat === 0 ? '·' : String(b.runsOffBat);
 }
 
-export default function PlayerStatsCard({
+function PlayerStatsCard({
   striker, nonStriker, bowler, currentOverBalls, maxBallsPerOver, currentOverNum
 }: PlayerStatsCardProps) {
   const legalBalls = currentOverBalls.filter(b => !b.isWide && !b.isNoBall).length;
@@ -110,3 +111,5 @@ export default function PlayerStatsCard({
     </div>
   );
 }
+
+export default React.memo(PlayerStatsCard);

@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import type { OverSummary } from '@/types/cricket';
 
 interface ManhattanChartProps {
@@ -7,7 +8,7 @@ interface ManhattanChartProps {
   teamName?: string;
 }
 
-export default function ManhattanChart({ overHistory, totalOvers, teamName = 'Team' }: ManhattanChartProps) {
+function ManhattanChart({ overHistory, totalOvers, teamName = 'Team' }: ManhattanChartProps) {
   if (overHistory.length === 0) return null;
 
   const maxRuns = Math.max(...overHistory.map(o => o.runs), 1);
@@ -84,3 +85,5 @@ export default function ManhattanChart({ overHistory, totalOvers, teamName = 'Te
     </div>
   );
 }
+
+export default React.memo(ManhattanChart);

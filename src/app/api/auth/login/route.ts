@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { setUserSession } from '@/lib/auth';
+import { setUserSession, signUserToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   const { username, password } = await request.json();
@@ -18,5 +18,12 @@ export async function POST(request: Request) {
   if (!valid) return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
 
   await setUserSession(user.id, user.name, user.username, false);
-  return NextResponse.json({ success: true, redirect: '/' });
+  // Also return a token so mobile clients can authenticate without cookies
+  const token = await signUserToken(user.id, user.name, user.username, false);
+  return NextResponse.json({ 
+    success: true, 
+    redirect: '/', 
+    token,
+    user: { id: user.id, name: user.name, username: user.username } 
+  });
 }

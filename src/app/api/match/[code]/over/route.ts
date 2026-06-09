@@ -8,39 +8,45 @@ export async function POST(
 ) {
   const { code } = await params;
   const body = await request.json();
-  const { balls = [] } = body;
+  const { balls = [], sessionId, matchId, inningsId, battingTeamId } = body;
 
   const sessionData = await getUserSession();
   if (!sessionData) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!sessionId || !matchId || !inningsId || !battingTeamId) {
+    return NextResponse.json({ error: 'Missing required context IDs' }, { status: 400 });
+  }
+
   const supabase = await createServiceClient();
 
-  // Get session by code
-  const { data: session } = await supabase
-    .from('sessions').select('*').eq('code', code).single();
+  // Perform all validation lookups in a single parallel batch
+  const [
+    { data: session },
+    { data: match },
+    { data: innings },
+    { data: playerMe },
+    { data: teamPlayers },
+    { data: currentPartnership }
+  ] = await Promise.all([
+    supabase.from('sessions').select('*').eq('code', code).eq('id', sessionId).single(),
+    supabase.from('matches').select('*').eq('id', matchId).single(),
+    supabase.from('innings').select('*').eq('id', inningsId).eq('status', 'active').single(),
+    supabase.from('players').select('*').eq('session_id', sessionId).eq('user_id', sessionData.id).maybeSingle(),
+    // Include jokers in all-out count — single batting: last player out = innings over
+    supabase.from('players').select('id').eq('team_id', battingTeamId),
+    supabase.from('partnerships').select('id,runs,balls,batsman1_id,batsman2_id').eq('innings_id', inningsId).is('wicket_number', null).maybeSingle()
+  ]);
+
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-
-  // Get active match
-  const { data: match } = await supabase
-    .from('matches').select('*').eq('session_id', session.id)
-    .order('match_number', { ascending: false }).limit(1).single();
   if (!match) return NextResponse.json({ error: 'No active match' }, { status: 404 });
-
-  // Get active innings
-  const { data: innings } = await supabase
-    .from('innings').select('*').eq('match_id', match.id).eq('status', 'active').single();
   if (!innings) return NextResponse.json({ error: 'No active innings' }, { status: 404 });
 
-  // Verify scorer (must be in batting team and have is_scorer = true)
-  const { data: playerMe } = await supabase
-    .from('players').select('*')
-    .eq('session_id', session.id)
-    .eq('user_id', sessionData.id)
-    .single();
-
+  // Verify scorer (must be in batting team and have is_scorer = true, OR be the owner with is_scorer)
+  const isOwner = playerMe?.user_id === session.owner_id;
   const isBattingTeamScorer = playerMe?.is_scorer && playerMe?.team_id === innings.team_id;
+  const isOwnerScorer = playerMe?.is_scorer && isOwner;
 
-  if (!isBattingTeamScorer) {
+  if (!isBattingTeamScorer && !isOwnerScorer) {
     return NextResponse.json({ error: 'Not authorised as batting team scorer' }, { status: 403 });
   }
 
@@ -48,21 +54,13 @@ export async function POST(
     return NextResponse.json({ error: 'No balls provided' }, { status: 400 });
   }
 
-  // Get all players for this team to determine all-out limit
-  const { data: teamPlayers } = await supabase
-    .from('players').select('id')
-    .eq('team_id', innings.team_id).eq('is_joker', false);
-  const allOutLimit = (teamPlayers && teamPlayers.length > 0) ? teamPlayers.length - 1 : 10;
+  // No -1: single batting allowed — innings ends only when ALL players out
+  const allOutLimit = (teamPlayers && teamPlayers.length > 0) ? teamPlayers.length : 10;
 
   let currentRuns = innings.total_runs;
   let currentExtras = innings.total_extras;
   let currentBalls = innings.total_balls;
   let currentWickets = innings.total_wickets;
-
-  // Fetch current open partnership once before loop
-  let { data: currentPartnership } = await supabase
-    .from('partnerships').select('id,runs,balls,batsman1_id,batsman2_id')
-    .eq('innings_id', innings.id).is('wicket_number', null).single();
 
   // Batch insert all balls
   const ballInserts = balls.map((b: any) => ({

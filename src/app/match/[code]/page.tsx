@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRealtimeMatch } from '@/lib/hooks/useRealtimeMatch';
 import { useMatchState } from '@/lib/hooks/useMatchState';
@@ -25,6 +25,7 @@ import type { WicketType, ExtraType, Team } from '@/types/cricket';
 import { buildOverHistory, calcBowlerStats, calcBatsmanStats, ballToSummary } from '@/lib/cricket/engine';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useToast } from '@/components/ui/Toast';
+import { createClient } from '@/lib/supabase/client';
 
 interface PageProps { params: Promise<{ code: string }> }
 
@@ -101,10 +102,12 @@ export default function MatchPage({ params }: PageProps) {
       const user = meRef.current;
       if (!user) { setIsScorer(false); return; }
       if (session) setIsOwner(user.id === session.owner_id);
+      const isOwner = session?.owner_id === user.id;
       const me = players.find(p => p.user_id === user.id);
       const activeInnings = innings.find(i => i.status === 'active');
       const isBattingTeamScorer = !!(me?.is_scorer && activeInnings && me?.team_id === activeInnings.team_id);
-      setIsScorer(isBattingTeamScorer);
+      const isOwnerScorer = !!(me?.is_scorer && isOwner);
+      setIsScorer(isBattingTeamScorer || isOwnerScorer);
     };
     fetchMe();
   }, [session, players, innings]);
@@ -145,9 +148,8 @@ export default function MatchPage({ params }: PageProps) {
     const activeInn = innings.find(i => i.status === 'active');
     if (!activeInn || !session) return;
     // Fetch partnership to get opener IDs
-    const supabaseClient = (async () => {
-      const { createClient } = await import('@/lib/supabase/client');
-      const sb = createClient();
+    const sb = createClient();
+    (async () => {
       const { data: partnership } = await sb.from('partnerships')
         .select('batsman1_id,batsman2_id')
         .eq('innings_id', activeInn.id)
@@ -162,45 +164,45 @@ export default function MatchPage({ params }: PageProps) {
     })();
   }, [innings, session]);
 
-  const currentInnings = innings.find(i => i.status === 'active') ?? null;
-  const prevInnings = innings.find(i => i.status === 'complete') ?? null;
-  const dbBalls = currentInnings ? balls.filter(b => b.innings_id === currentInnings.id) : [];
-  const inningsBalls = [...dbBalls, ...pendingBalls];
-  const overHistory = buildOverHistory(inningsBalls);
-  const currentOverNum = currentInnings ? Math.floor(currentInnings.total_balls / 6) : 0;
-  const currentOverBalls = inningsBalls.filter(b => b.over_number === currentOverNum).map(b => ballToSummary(b));
+  const currentInnings = useMemo(() => innings.find(i => i.status === 'active') ?? null, [innings]);
+  const prevInnings = useMemo(() => innings.find(i => i.status === 'complete') ?? null, [innings]);
+  const dbBalls = useMemo(() => currentInnings ? balls.filter(b => b.innings_id === currentInnings.id) : [], [balls, currentInnings?.id]);
+  const inningsBalls = useMemo(() => [...dbBalls, ...pendingBalls], [dbBalls, pendingBalls]);
+  const overHistory = useMemo(() => buildOverHistory(inningsBalls), [inningsBalls]);
+  const currentOverNum = useMemo(() => currentInnings ? Math.floor(currentInnings.total_balls / 6) : 0, [currentInnings?.total_balls]);
+  const currentOverBalls = useMemo(() => inningsBalls.filter(b => b.over_number === currentOverNum).map(b => ballToSummary(b)), [inningsBalls, currentOverNum]);
 
-  // Teams
-  const team1 = players.filter(p => p.team_id === match?.team1_id);
-  const team2 = players.filter(p => p.team_id === match?.team2_id);
-  const unassignedPlayers = players.filter(p => p.team_id === null && !p.is_joker);
-  const jokerPlayers = players.filter(p => p.is_joker);
-  const battingPlayers = currentInnings ? [...players.filter(p => p.team_id === currentInnings.team_id && !p.is_joker), ...jokerPlayers] : [];
-  const bowlingTeamId = currentInnings
+  // Teams — memoized to avoid re-filtering on every render
+  const unassignedPlayers = useMemo(() => players.filter(p => p.team_id === null && !p.is_joker), [players]);
+  const jokerPlayers = useMemo(() => players.filter(p => p.is_joker), [players]);
+  const battingPlayers = useMemo(() => currentInnings ? [...players.filter(p => p.team_id === currentInnings.team_id && !p.is_joker), ...jokerPlayers] : [], [players, currentInnings?.team_id, jokerPlayers]);
+  const bowlingTeamId = useMemo(() => currentInnings
     ? (currentInnings.team_id === match?.team1_id ? match?.team2_id : match?.team1_id)
-    : null;
-  const bowlingPlayers = bowlingTeamId ? [...players.filter(p => p.team_id === bowlingTeamId && !p.is_joker), ...jokerPlayers] : [];
+    : null, [currentInnings?.team_id, match?.team1_id, match?.team2_id]);
+  const bowlingPlayers = useMemo(() => bowlingTeamId ? [...players.filter(p => p.team_id === bowlingTeamId && !p.is_joker), ...jokerPlayers] : [], [players, bowlingTeamId, jokerPlayers]);
   const fieldingTeamPlayers = bowlingPlayers;
 
-  const striker = players.find(p => p.id === strikerId);
-  const nonStriker = players.find(p => p.id === nonStrikerId);
-  const bowler = players.find(p => p.id === bowlerId);
+  const striker = useMemo(() => players.find(p => p.id === strikerId), [players, strikerId]);
+  const nonStriker = useMemo(() => players.find(p => p.id === nonStrikerId), [players, nonStrikerId]);
+  const bowler = useMemo(() => players.find(p => p.id === bowlerId), [players, bowlerId]);
 
-  const strikerStats = striker ? calcBatsmanStats(striker, inningsBalls, true) : null;
-  const nonStrikerStats = nonStriker ? calcBatsmanStats(nonStriker, inningsBalls, false) : null;
-  const bowlerStats = bowler ? calcBowlerStats(bowler, inningsBalls) : null;
+  const strikerStats = useMemo(() => striker ? calcBatsmanStats(striker, inningsBalls, true) : null, [striker, inningsBalls]);
+  const nonStrikerStats = useMemo(() => nonStriker ? calcBatsmanStats(nonStriker, inningsBalls, false) : null, [nonStriker, inningsBalls]);
+  const bowlerStats = useMemo(() => bowler ? calcBowlerStats(bowler, inningsBalls) : null, [bowler, inningsBalls]);
 
   // Optimistic live innings — merge DB state with pending balls for instant header update
-  const pendingRuns = pendingBalls.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
-  const pendingWickets = pendingBalls.filter(b => b.is_wicket).length;
-  const pendingLegal = pendingBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
-  const liveInnings = currentInnings ? {
+  const { pendingRuns, pendingWickets, pendingLegal } = useMemo(() => ({
+    pendingRuns: pendingBalls.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0),
+    pendingWickets: pendingBalls.filter(b => b.is_wicket).length,
+    pendingLegal: pendingBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length,
+  }), [pendingBalls]);
+  const liveInnings = useMemo(() => currentInnings ? {
     ...currentInnings,
     // Use max of (DB + pending) vs submittedTotal to prevent revert during API round-trip
     total_runs: Math.max(currentInnings.total_runs + pendingRuns, submittedTotal?.runs ?? 0),
     total_wickets: Math.max(currentInnings.total_wickets + pendingWickets, submittedTotal?.wickets ?? 0),
     total_balls: Math.max(currentInnings.total_balls + pendingLegal, submittedTotal?.balls ?? 0),
-  } : null;
+  } : null, [currentInnings, pendingRuns, pendingWickets, pendingLegal, submittedTotal]);
 
   // Clear submittedTotal once DB confirms (realtime innings UPDATE catches up)
   useEffect(() => {
@@ -208,54 +210,73 @@ export default function MatchPage({ params }: PageProps) {
     if (currentInnings.total_balls >= submittedTotal.balls) setSubmittedTotal(null);
   }, [currentInnings?.total_balls]);
 
-  const crr = liveInnings && liveInnings.total_balls > 0
+  const crr = useMemo(() => liveInnings && liveInnings.total_balls > 0
     ? Math.round((liveInnings.total_runs / (liveInnings.total_balls / 6)) * 100) / 100
-    : 0;
-  const rrr = liveInnings?.target && liveInnings.total_balls < (match?.overs ?? 0) * 6
+    : 0, [liveInnings?.total_runs, liveInnings?.total_balls]);
+  const rrr = useMemo(() => liveInnings?.target && liveInnings.total_balls < (match?.overs ?? 0) * 6
     ? Math.round(((liveInnings.target - liveInnings.total_runs) / (((match?.overs ?? 0) * 6 - liveInnings.total_balls) / 6)) * 100) / 100
-    : null;
-  const isFreehitNext = inningsBalls[inningsBalls.length - 1]?.extra_type === 'noball';
+    : null, [liveInnings?.target, liveInnings?.total_runs, liveInnings?.total_balls, match?.overs]);
+  const isFreehitNext = useMemo(() => inningsBalls[inningsBalls.length - 1]?.extra_type === 'noball', [inningsBalls]);
 
-  const submitOver = async (overBalls: any[]) => {
+  const submitOver = useCallback((overBalls: any[]) => {
     if (overBalls.length === 0) return;
-    try {
-      const res = await fetch(`/api/match/${code}/over`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ balls: overBalls })
-      });
-      const result = await res.json();
-      if (result.success) {
-        // Lock in committed totals so score never reverts while waiting for realtime confirm
-        setSubmittedTotal({
-          runs: currentInnings ? currentInnings.total_runs + pendingRuns : 0,
-          balls: currentInnings ? currentInnings.total_balls + pendingLegal : 0,
-          wickets: currentInnings ? currentInnings.total_wickets + pendingWickets : 0,
-        });
-        setPendingBalls([]);
-        if (result.inningsOver) {
-          const actionRes = await fetch(`/api/match/${code}/action`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'innings_end', data: { inningsId: currentInnings?.id, matchId: match?.id } }),
-          });
-          const actionData = await actionRes.json();
-          if (actionData.target) setInnings1Target(actionData.target);
-          setShowInningsBreak(true);
-        } else {
-          setPreviousOverBowlerId(bowlerId); // track for consecutive-over warning
-          setShowBowler(true);
-        }
-      } else {
-        showToast(result.error, 'error');
-        setSubmittedTotal(null);
-        setPendingBalls([]); // Revert on error
-      }
-    } catch (e) {
-      showToast('Failed to submit over', 'error');
-      setSubmittedTotal(null);
-      setPendingBalls([]);
+    
+    // 1. Lock in optimistic totals immediately
+    setSubmittedTotal({
+      runs: currentInnings ? currentInnings.total_runs + pendingRuns : 0,
+      balls: currentInnings ? currentInnings.total_balls + pendingLegal : 0,
+      wickets: currentInnings ? currentInnings.total_wickets + pendingWickets : 0,
+    });
+    setPendingBalls([]);
+
+    // 2. Optimistically determine if innings is over
+    const totalWicketsOpt = (currentInnings?.total_wickets ?? 0) + pendingWickets;
+    const totalBallsOpt = (currentInnings?.total_balls ?? 0) + pendingLegal;
+    const totalRunsOpt = (currentInnings?.total_runs ?? 0) + pendingRuns;
+    // No -1: single batting allowed — everyone must be out for innings to end
+    const allOutLimit = battingPlayers.length || 10;
+    const targetChased = currentInnings?.innings_number === 2 && currentInnings.target != null && totalRunsOpt >= currentInnings.target;
+    const inningsOverOpt = (totalBallsOpt >= (match?.overs ?? 0) * 6) || (totalWicketsOpt >= allOutLimit) || targetChased;
+
+    if (inningsOverOpt) {
+      setShowInningsBreak(true);
+    } else {
+      setPreviousOverBowlerId(bowlerId);
+      setShowBowler(true);
     }
-  };
+
+    // 3. Fire API in background (non-blocking)
+    fetch(`/api/match/${code}/over`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        balls: overBalls,
+        sessionId: session?.id,
+        matchId: match?.id,
+        inningsId: currentInnings?.id,
+        battingTeamId: currentInnings?.team_id
+      })
+    })
+    .then(res => res.json())
+    .then(async (result) => {
+      if (result.success && result.inningsOver) {
+        // Only fire action if API confirmed it's over
+        const actionRes = await fetch(`/api/match/${code}/action`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'innings_end', data: { inningsId: currentInnings?.id, matchId: match?.id } }),
+        });
+        const actionData = await actionRes.json();
+        if (actionData.target) setInnings1Target(actionData.target);
+      } else if (!result.success) {
+        showToast(result.error || 'Failed to submit over', 'error');
+        setSubmittedTotal(null); // Will snap back to realtime DB state
+      }
+    })
+    .catch(() => {
+      showToast('Network error submitting over', 'error');
+      setSubmittedTotal(null);
+    });
+  }, [code, currentInnings, pendingRuns, pendingWickets, pendingLegal, session?.id, match?.id, match?.overs, battingPlayers, bowlerId, showToast]);
 
   const handleTransferScorer = async (newScorerId: string) => {
     try {
@@ -355,7 +376,8 @@ export default function MatchPage({ params }: PageProps) {
     const legalInOver = newPending.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
     const overComplete = legalInOver >= 6;
     const wickets = inningsBalls.filter(b => b.is_wicket).length + (payload.is_wicket ? 1 : 0);
-    const allOutLimit = battingPlayers.length > 0 ? battingPlayers.length - 1 : 10;
+    // No -1: single batting — innings ends only when every player is out
+    const allOutLimit = battingPlayers.length > 0 ? battingPlayers.length : 10;
     const allOut = wickets >= allOutLimit;
 
     const totalPendingRuns = newPending.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
@@ -383,7 +405,16 @@ export default function MatchPage({ params }: PageProps) {
     setNonStrikerId(nextNonStriker);
     
     if (payload.is_wicket && !allOut) {
-      setShowBatsman(true);
+      // remainingBatsmen = total players - wickets already fallen (including this ball)
+      const remainingBatsmen = battingPlayers.length - wickets;
+      if (remainingBatsmen === 1) {
+        // Last batsman — non-striker bats alone, no new player to pick
+        setStrikerId(nextNonStriker);   // surviving non-striker becomes striker
+        setNonStrikerId('single');       // no partner
+        showToast('⚡ Last batsman — playing solo', 'info', 2500);
+      } else {
+        setShowBatsman(true);
+      }
     }
   };
 
@@ -414,6 +445,10 @@ export default function MatchPage({ params }: PageProps) {
     // If wicket was undone, restore striker
     if (popped.is_wicket) {
       setStrikerId(popped.batsman_id);
+      // If we're currently in single-batting mode, this undo exits it — restore non-striker
+      if (nonStrikerId === 'single' && popped.non_striker_id && popped.non_striker_id !== 'single') {
+        setNonStrikerId(popped.non_striker_id);
+      }
     }
   };
 
@@ -741,6 +776,14 @@ export default function MatchPage({ params }: PageProps) {
                   maxBallsPerOver={match.overs > 0 ? 6 : 6}
                   currentOverNum={currentOverNum + 1}
                 />
+              )}
+
+              {/* Single batting indicator */}
+              {isScorer && nonStrikerId === 'single' && strikerId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,200,0,.12)', border: '1px solid rgba(255,200,0,.3)', borderRadius: '8px', padding: '7px 12px' }}>
+                  <span style={{ fontSize: '14px' }}>⚡</span>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,200,0,.9)', fontFamily: 'Barlow, sans-serif' }}>Last batsman — playing solo (no strike rotation)</span>
+                </div>
               )}
 
               {/* Change player buttons — only available between overs (no pending balls) */}

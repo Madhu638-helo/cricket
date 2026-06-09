@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 import type { Innings, Match, Team } from '@/types/cricket';
 import { formatOvers } from '@/lib/cricket/engine';
 import { useRouter } from 'next/navigation';
@@ -19,7 +20,7 @@ interface ScoreHeaderProps {
   onBackToScore?: () => void;
 }
 
-export default function ScoreHeader({
+function ScoreHeader({
   innings, match, battingTeam, bowlingTeam, crr, rrr, projectedScore, isFreehitNext, onOpenScorecard, previousInnings, activeTab, onBackToScore
 }: ScoreHeaderProps) {
   const router = useRouter();
@@ -200,3 +201,5 @@ export default function ScoreHeader({
     </div>
   );
 }
+
+export default React.memo(ScoreHeader);
