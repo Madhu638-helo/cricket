@@ -11,6 +11,7 @@ import ManhattanChart from '@/components/scoring/ManhattanChart';
 import WormGraph from '@/components/scoring/WormGraph';
 import ManageTeamsSheet from '@/components/sheets/ManageTeamsSheet';
 import InningsBreakSheet from '@/components/sheets/InningsBreakSheet';
+import ChampionsView from '@/components/scorecard/ChampionsView';
 import { useRouter } from 'next/navigation';
 
 interface SpectatorViewProps {
@@ -121,7 +122,7 @@ const SpectatorView = React.memo(({
   const router = useRouter();
   const currentInnings = inningsList.find(i => i.status === 'active') ?? inningsList[inningsList.length - 1] ?? null;
   const [activeInningsId, setActiveInningsId] = useState<string>(currentInnings?.id || '');
-  const [activeTab, setActiveTab] = useState<'live' | 'stats' | 'scorecard'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'stats' | 'scorecard' | 'champions'>('live');
   const [playAgainOvers, setPlayAgainOvers] = useState<number>(0); // 0 = inherit from match
   const [showManageTeams, setShowManageTeams] = useState(false);
   const [showInningsBreak, setShowInningsBreak] = useState(false);
@@ -145,62 +146,162 @@ const SpectatorView = React.memo(({
 
   if (!team1Obj || !team2Obj) return null;
 
-  const displayInnings = inningsList.find(i => i.id === activeInningsId) || currentInnings;
+  // During innings_break, force displayInnings=null so the break screen renders for all viewers.
+  // During result, fall back to last innings so the scorecard stays visible.
+  const displayInnings = match.status === 'innings_break'
+    ? null
+    : (inningsList.find(i => i.id === activeInningsId) || currentInnings);
+
   if (!displayInnings) {
     const prevCompleted = inningsList.find(i => i.status === 'complete') ?? null;
-    return (
-      <div style={{ minHeight: '100dvh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', padding: '24px' }}>
-        {match.status === 'innings_break' && prevCompleted ? (
-          <>
-            <div style={{ fontSize: '36px' }}>☕</div>
-            <div style={{ fontSize: '18px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', color: 'var(--txt)' }}>Innings Break</div>
-            <div style={{ fontSize: '13px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>
-              Target: {prevCompleted.total_runs + 1} runs
+
+    if (match.status === 'innings_break' && prevCompleted) {
+      // Compute top performers from innings 1 balls
+      const inn1Balls = balls.filter(b => b.innings_id === prevCompleted.id);
+      const battingTeamName = prevCompleted.team_id === team1Obj?.id ? team1Obj.name : team2Obj?.name ?? '';
+      const chasingTeamName = prevCompleted.team_id === team1Obj?.id ? team2Obj?.name ?? '' : team1Obj?.name ?? '';
+
+      const runsByBatsman = new Map<string, number>();
+      inn1Balls.forEach(b => {
+        if (b.batsman_id) runsByBatsman.set(b.batsman_id, (runsByBatsman.get(b.batsman_id) ?? 0) + (b.runs_off_bat ?? 0));
+      });
+      const topScorerId = [...runsByBatsman.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const topScorerRuns = topScorerId ? (runsByBatsman.get(topScorerId) ?? 0) : 0;
+      const topScorer = topScorerId ? players.find(p => p.id === topScorerId) : null;
+
+      const wicketsByBowler = new Map<string, number>();
+      inn1Balls.filter(b => b.is_wicket && b.wicket_type !== 'runout').forEach(b => {
+        if (b.bowler_id) wicketsByBowler.set(b.bowler_id, (wicketsByBowler.get(b.bowler_id) ?? 0) + 1);
+      });
+      const topBowlerId = [...wicketsByBowler.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const topBowlerWkts = topBowlerId ? (wicketsByBowler.get(topBowlerId) ?? 0) : 0;
+      const topBowler = topBowlerId ? players.find(p => p.id === topBowlerId) : null;
+
+      const catchesByFielder = new Map<string, number>();
+      inn1Balls.filter(b => b.is_wicket && b.fielder_id && (b.wicket_type === 'caught' || b.wicket_type === 'stumped')).forEach(b => {
+        if (b.fielder_id) catchesByFielder.set(b.fielder_id, (catchesByFielder.get(b.fielder_id) ?? 0) + 1);
+      });
+      const topFielderId = [...catchesByFielder.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const topFielderCatches = topFielderId ? (catchesByFielder.get(topFielderId) ?? 0) : 0;
+      const topFielder = topFielderId ? players.find(p => p.id === topFielderId) : null;
+
+      return (
+        <div style={{ minHeight: '100dvh', background: 'var(--bg)', overflowY: 'auto', paddingBottom: '32px' }}>
+          {/* Break header */}
+          <div style={{ background: 'linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04))', borderBottom: '1px solid rgba(251,191,36,.2)', padding: '24px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: '32px', marginBottom: '6px' }}>☕</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: 'var(--gold)', letterSpacing: '.5px', marginBottom: '16px' }}>INNINGS BREAK</div>
+            {/* Innings 1 final score */}
+            <div style={{ margin: '0 0 14px', padding: '14px', background: 'rgba(255,255,255,.04)', borderRadius: '14px', border: '1px solid rgba(255,255,255,.08)' }}>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: '6px' }}>{battingTeamName}</div>
+              <div style={{ fontSize: '44px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: 'var(--txt)', lineHeight: 1 }}>
+                {prevCompleted.total_runs}/{prevCompleted.total_wickets}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', marginTop: '4px' }}>
+                {formatOvers(prevCompleted.total_balls)} ov
+              </div>
             </div>
-            {isOwner && code && (
+            {/* Target */}
+            <div style={{ fontSize: '15px', fontFamily: 'Barlow, sans-serif' }}>
+              <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{chasingTeamName} need </span>
+              <span style={{ fontWeight: 900, color: '#fca5a5', fontSize: '24px' }}>{prevCompleted.total_runs + 1}</span>
+              <span style={{ color: 'var(--muted)', fontWeight: 600 }}> to win</span>
+            </div>
+          </div>
+
+          {/* Top performers */}
+          {(topScorer || topBowler || topFielder) && (
+            <div style={{ padding: '16px 16px 8px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: '10px' }}>Innings 1 Stars</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {topScorer && topScorerRuns > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}>
+                    <div style={{ fontSize: '22px' }}>🏏</div>
+                    <div>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Top Scorer</div>
+                      <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', color: 'var(--txt)' }}>{topScorer.name}</div>
+                    </div>
+                    <div style={{ marginLeft: 'auto', fontSize: '26px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: '#fbbf24' }}>{topScorerRuns}</div>
+                  </div>
+                )}
+                {topBowler && topBowlerWkts > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}>
+                    <div style={{ fontSize: '22px' }}>🎯</div>
+                    <div>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Top Bowler</div>
+                      <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', color: 'var(--txt)' }}>{topBowler.name}</div>
+                    </div>
+                    <div style={{ marginLeft: 'auto', fontSize: '26px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: '#a78bfa' }}>{topBowlerWkts}w</div>
+                  </div>
+                )}
+                {topFielder && topFielderCatches > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px 14px' }}>
+                    <div style={{ fontSize: '22px' }}>🧤</div>
+                    <div>
+                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Best Fielder</div>
+                      <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'Barlow, sans-serif', color: 'var(--txt)' }}>{topFielder.name}</div>
+                    </div>
+                    <div style={{ marginLeft: 'auto', fontSize: '26px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: '#34d399' }}>{topFielderCatches}c</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Owner: start 2nd innings */}
+          {isOwner && code && (
+            <div style={{ padding: '8px 16px' }}>
               <button
                 onClick={() => setShowInningsBreak(true)}
-                style={{ background: 'var(--live)', color: '#fff', border: 'none', borderRadius: '12px', padding: '13px 28px', fontSize: '15px', fontWeight: 800, cursor: 'pointer', fontFamily: 'Barlow, sans-serif', marginTop: '8px' }}
+                style={{ width: '100%', background: 'var(--live)', color: '#fff', border: 'none', borderRadius: '12px', padding: '14px', fontSize: '15px', fontWeight: 800, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
               >
                 Start 2nd Innings →
               </button>
-            )}
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: '36px' }}>🏏</div>
-            <div style={{ color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '14px' }}>Waiting for match to start…</div>
-          </>
-        )}
-        {/* InningsBreakSheet for owner in SpectatorView */}
-        {isOwner && code && showInningsBreak && prevCompleted && team1Obj && team2Obj && (
-          <InningsBreakSheet
-            open={showInningsBreak}
-            target={prevCompleted.total_runs + 1}
-            team1Runs={prevCompleted.total_runs}
-            team1Name={prevCompleted.team_id === team1Obj.id ? team1Obj.name : team2Obj.name}
-            team2Name={prevCompleted.team_id === team1Obj.id ? team2Obj.name : team1Obj.name}
-            overs={match.overs}
-            battingPlayers={players.filter(p => p.team_id !== prevCompleted.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
-            bowlingPlayers={players.filter(p => p.team_id === prevCompleted.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
-            onStartInnings2={async (opener1, opener2, bowler) => {
-              const inn2TeamId = prevCompleted.team_id === match.team1_id ? match.team2_id : match.team1_id;
-              await fetch(`/api/match/${code}/action`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'start_innings_2',
-                  data: {
-                    matchId: match.id,
-                    battingTeamId: inn2TeamId,
-                    opener1Id: opener1, opener2Id: opener2, bowlerId: bowler,
-                    target: prevCompleted.total_runs + 1,
-                  },
-                }),
-              });
-              setShowInningsBreak(false);
-            }}
-          />
-        )}
+            </div>
+          )}
+
+          {/* Non-owner: waiting */}
+          {!isOwner && (
+            <div style={{ padding: '8px 16px', textAlign: 'center' }}>
+              <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: '12px', padding: '14px', color: 'var(--muted)', fontSize: '13px', fontFamily: 'Barlow, sans-serif' }}>
+                Waiting for 2nd innings to start…
+              </div>
+            </div>
+          )}
+
+          {/* InningsBreakSheet for owner */}
+          {isOwner && code && showInningsBreak && team1Obj && team2Obj && (
+            <InningsBreakSheet
+              open={showInningsBreak}
+              target={prevCompleted.total_runs + 1}
+              team1Runs={prevCompleted.total_runs}
+              team1Name={prevCompleted.team_id === team1Obj.id ? team1Obj.name : team2Obj.name}
+              team2Name={prevCompleted.team_id === team1Obj.id ? team2Obj.name : team1Obj.name}
+              overs={match.overs}
+              battingPlayers={players.filter(p => p.team_id !== prevCompleted.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
+              bowlingPlayers={players.filter(p => p.team_id === prevCompleted.team_id || p.is_joker).map(p => ({ id: p.id, name: p.name }))}
+              onStartInnings2={async (opener1, opener2, bowler) => {
+                const inn2TeamId = prevCompleted.team_id === match.team1_id ? match.team2_id : match.team1_id;
+                await fetch(`/api/match/${code}/action`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'start_innings_2',
+                    data: { matchId: match.id, battingTeamId: inn2TeamId, opener1Id: opener1, opener2Id: opener2, bowlerId: bowler, target: prevCompleted.total_runs + 1 },
+                  }),
+                });
+                setShowInningsBreak(false);
+              }}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // No active innings and not innings_break: waiting for match to start
+    return (
+      <div style={{ minHeight: '100dvh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', padding: '24px' }}>
+        <div style={{ fontSize: '36px' }}>🏏</div>
+        <div style={{ color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '14px' }}>Waiting for match to start…</div>
       </div>
     );
   }
@@ -213,29 +314,46 @@ const SpectatorView = React.memo(({
     (b.over_number * 10 + b.ball_number) - (a.over_number * 10 + a.ball_number)
   ), [displayBalls]);
 
-  const overs = useMemo(() => formatOvers(displayInnings.total_balls), [displayInnings.total_balls]);
+  // Compute live totals from displayBalls — updates per-ball via realtime, not per-over from DB
+  const liveTotalRuns = useMemo(() => displayBalls.reduce((s, b) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0), [displayBalls]);
+  const liveTotalBalls = useMemo(() => displayBalls.filter(b => b.extra_type !== 'wide' && b.extra_type !== 'noball').length, [displayBalls]);
+  const liveTotalWickets = useMemo(() => displayBalls.filter(b => b.is_wicket).length, [displayBalls]);
+
+  // Merge: use whichever is larger (balls lead DB during active over, DB leads on load)
+  const liveDisplayInnings = useMemo(() => ({
+    ...displayInnings,
+    total_runs: Math.max(displayInnings.total_runs, liveTotalRuns),
+    total_balls: Math.max(displayInnings.total_balls, liveTotalBalls),
+    total_wickets: Math.max(displayInnings.total_wickets, liveTotalWickets),
+  }), [displayInnings, liveTotalRuns, liveTotalBalls, liveTotalWickets]);
+
+  const overs = useMemo(() => formatOvers(liveDisplayInnings.total_balls), [liveDisplayInnings.total_balls]);
   const battingTeamObj = useMemo(() => displayInnings.team_id === team1Obj.id ? team1Obj : team2Obj, [displayInnings.team_id, team1Obj, team2Obj]);
   const bowlingTeamObj = useMemo(() => battingTeamObj.id === team1Obj.id ? team2Obj : team1Obj, [battingTeamObj.id, team1Obj, team2Obj]);
 
-  const crr = useMemo(() => displayInnings.total_balls > 0
-    ? Math.round((displayInnings.total_runs / (displayInnings.total_balls / 6)) * 100) / 100
-    : 0, [displayInnings.total_runs, displayInnings.total_balls]);
+  const crr = useMemo(() => liveDisplayInnings.total_balls > 0
+    ? Math.round((liveDisplayInnings.total_runs / (liveDisplayInnings.total_balls / 6)) * 100) / 100
+    : 0, [liveDisplayInnings.total_runs, liveDisplayInnings.total_balls]);
   const target = displayInnings.target ?? null;
-  const needed = useMemo(() => target ? Math.max(0, target - displayInnings.total_runs) : null, [target, displayInnings.total_runs]);
-  const ballsLeft = useMemo(() => match.overs * 6 - displayInnings.total_balls, [match.overs, displayInnings.total_balls]);
-  const rrr = useMemo(() => target && ballsLeft > 0
-    ? Math.round(((target - displayInnings.total_runs) / (ballsLeft / 6)) * 100) / 100
-    : null, [target, displayInnings.total_runs, ballsLeft]);
+  const needed = useMemo(() => target ? Math.max(0, target - liveDisplayInnings.total_runs) : null, [target, liveDisplayInnings.total_runs]);
+  const ballsLeft = useMemo(() => match.overs * 6 - liveDisplayInnings.total_balls, [match.overs, liveDisplayInnings.total_balls]);
+  const rrr = useMemo(() => {
+    if (!target || liveDisplayInnings.total_runs >= target || ballsLeft <= 0) return null;
+    return Math.round(((target - liveDisplayInnings.total_runs) / (ballsLeft / 6)) * 100) / 100;
+  }, [target, liveDisplayInnings.total_runs, ballsLeft]);
 
   const battingPlayers = useMemo(() => players.filter(p => p.team_id === displayInnings.team_id || p.is_joker), [players, displayInnings.team_id]);
   const bowlingPlayers = useMemo(() => players.filter(p => p.team_id === bowlingTeamObj.id || p.is_joker), [players, bowlingTeamObj.id]);
   const overHistory = useMemo(() => buildOverHistory(displayBalls), [displayBalls]);
 
-  const lastBall = useMemo(() => displayBalls.length > 0 ? displayBalls[displayBalls.length - 1] : null, [displayBalls]);
+  const lastBall = useMemo(() => {
+    if (displayBalls.length === 0) return null;
+    return [...displayBalls].sort((a, b) => a.delivery_number - b.delivery_number).at(-1) ?? null;
+  }, [displayBalls]);
   const strikerId = useMemo(() => isCurrentInnings && lastBall ? lastBall.batsman_id : '', [isCurrentInnings, lastBall]);
   const currentBowlerId = useMemo(() => isCurrentInnings && lastBall ? lastBall.bowler_id : '', [isCurrentInnings, lastBall]);
 
-  const currentOverNum = useMemo(() => Math.floor(displayInnings.total_balls / 6), [displayInnings.total_balls]);
+  const currentOverNum = useMemo(() => Math.floor(liveDisplayInnings.total_balls / 6), [liveDisplayInnings.total_balls]);
 
   const prevInnings = useMemo(() => inningsList.find(i => i.status === 'complete') ?? null, [inningsList]);
 
@@ -255,16 +373,16 @@ const SpectatorView = React.memo(({
 
       {/* Sticky score header */}
       <ScoreHeader
-        innings={displayInnings}
+        innings={liveDisplayInnings}
         match={match}
         battingTeam={battingTeamObj}
         bowlingTeam={bowlingTeamObj}
         crr={crr}
         rrr={rrr}
-        projectedScore={displayInnings.total_balls > 0 ? Math.round(crr * match.overs) : 0}
+        projectedScore={liveDisplayInnings.total_balls > 0 ? Math.round(crr * match.overs) : 0}
         isFreehitNext={lastBall?.extra_type === 'noball'}
         previousInnings={displayInnings.innings_number === 2 ? prevInnings : null}
-        activeTab={activeTab === 'scorecard' ? 'scorecard' : 'score'}
+        activeTab={activeTab === 'scorecard' || activeTab === 'stats' || activeTab === 'champions' ? 'scorecard' : 'score'}
         onBackToScore={() => setActiveTab('live')}
         onOpenScorecard={() => setActiveTab('scorecard')}
       />
@@ -334,53 +452,55 @@ const SpectatorView = React.memo(({
         </div>
       )}
 
-      {/* Owner result controls */}
-      {isOwner && code && match.status === 'result' && match.result && (
+      {/* Match result banner — visible to all, play-again controls owner-only */}
+      {match.status === 'result' && match.result && (
         <div style={{ margin: '12px 14px 0', background: 'linear-gradient(135deg,rgba(34,197,94,.1),rgba(34,197,94,.03))', border: '1px solid rgba(34,197,94,.2)', borderRadius: '14px', padding: '16px', textAlign: 'center' }}>
           <div style={{ fontSize: '1.5rem', marginBottom: '6px' }}>🏆</div>
-          <p style={{ color: '#22c55e', fontWeight: 800, fontSize: '15px', fontFamily: 'Barlow, sans-serif', marginBottom: '14px' }}>{match.result}</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {/* Overs picker for the next match */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,.05)', borderRadius: '10px', padding: '8px 12px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 600, fontFamily: 'Barlow, sans-serif', flex: 1 }}>Overs</span>
-              {[3, 5, 6, 8, 10, 15, 20].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setPlayAgainOvers(n)}
-                  style={{
-                    width: '30px', height: '26px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: 'none',
-                    background: (playAgainOvers || match.overs) === n ? '#e31b23' : 'rgba(255,255,255,.08)',
-                    color: (playAgainOvers || match.overs) === n ? '#fff' : 'var(--muted)',
-                    fontFamily: 'Barlow, sans-serif',
-                  }}
-                >{n}</button>
-              ))}
+          <p style={{ color: '#22c55e', fontWeight: 800, fontSize: '15px', fontFamily: 'Barlow, sans-serif', marginBottom: isOwner && code ? '14px' : '4px' }}>{match.result}</p>
+          {isOwner && code && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Overs picker for the next match */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,.05)', borderRadius: '10px', padding: '8px 12px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 600, fontFamily: 'Barlow, sans-serif', flex: 1 }}>Overs</span>
+                {[3, 5, 6, 8, 10, 15, 20].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setPlayAgainOvers(n)}
+                    style={{
+                      width: '30px', height: '26px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', border: 'none',
+                      background: (playAgainOvers || match.overs) === n ? '#e31b23' : 'rgba(255,255,255,.08)',
+                      color: (playAgainOvers || match.overs) === n ? '#fff' : 'var(--muted)',
+                      fontFamily: 'Barlow, sans-serif',
+                    }}
+                  >{n}</button>
+                ))}
+              </div>
+              <button
+                onClick={async () => {
+                  const res = await fetch(`/api/match/${code}/action`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'new_match', data: { overs: playAgainOvers || match.overs, team1Id: match.team1_id, team2Id: match.team2_id, matchNumber: inningsList.length > 0 ? Math.ceil(inningsList.length / 2) + 1 : 2 }}),
+                  });
+                  if (res.ok) router.push(`/match/${code}/toss`);
+                }}
+                style={{ background: '#e31b23', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+              >
+                Play Again — Same Teams
+              </button>
+              <button
+                onClick={async () => {
+                  await fetch(`/api/match/${code}/action`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'reset_teams', data: {} }),
+                  });
+                  router.push(`/match/${code}/lobby`);
+                }}
+                style={{ background: 'rgba(255,255,255,.06)', color: 'var(--txt)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
+              >
+                Rearrange Teams
+              </button>
             </div>
-            <button
-              onClick={async () => {
-                const res = await fetch(`/api/match/${code}/action`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'new_match', data: { overs: playAgainOvers || match.overs, team1Id: match.team1_id, team2Id: match.team2_id, matchNumber: inningsList.length > 0 ? Math.ceil(inningsList.length / 2) + 1 : 2 }}),
-                });
-                if (res.ok) router.push(`/match/${code}/toss`);
-              }}
-              style={{ background: '#e31b23', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
-            >
-              Play Again — Same Teams
-            </button>
-            <button
-              onClick={async () => {
-                await fetch(`/api/match/${code}/action`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'reset_teams', data: {} }),
-                });
-                router.push(`/match/${code}/lobby`);
-              }}
-              style={{ background: 'rgba(255,255,255,.06)', color: 'var(--txt)', border: '1px solid rgba(255,255,255,.1)', borderRadius: '10px', padding: '11px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Barlow, sans-serif' }}
-            >
-              Rearrange Teams
-            </button>
-          </div>
+          )}
         </div>
       )}
 
@@ -423,11 +543,11 @@ const SpectatorView = React.memo(({
         </div>
       )}
 
-      {/* Tab bar: LIVE | STATS | SCORECARD */}
+      {/* Tab bar: LIVE | STATS | SCORECARD | CHAMPS */}
       <div style={{ display: 'flex', margin: '12px 14px 0', background: 'var(--s1)', borderRadius: '10px', padding: '3px', border: '1px solid var(--border)', gap: '3px' }}>
-        {(['live', 'stats', 'scorecard'] as const).map(t => (
+        {(['live', 'stats', 'scorecard', 'champions'] as const).map(t => (
           <button key={t} onClick={() => setActiveTab(t)} style={tabStyle(t)}>
-            {t === 'live' ? '⚡ Live' : t === 'stats' ? '📊 Stats' : '📋 Card'}
+            {t === 'live' ? '⚡ Live' : t === 'stats' ? '📊 Stats' : t === 'scorecard' ? '📋 Card' : '🏆 Champs'}
           </button>
         ))}
       </div>
@@ -699,6 +819,13 @@ const SpectatorView = React.memo(({
                 />
               </>
             )}
+          </div>
+        )}
+
+        {/* ─── CHAMPIONS TAB ─── */}
+        {activeTab === 'champions' && code && (
+          <div style={{ paddingTop: '4px' }}>
+            <ChampionsView code={code} />
           </div>
         )}
 

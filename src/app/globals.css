@@ -218,10 +218,11 @@ h1,h2,h3,.heading,.score-lg,.sbtn{font-family:'Barlow Condensed',sans-serif}
   padding:8px 4px calc(8px + env(safe-area-inset-bottom, 0px));
   z-index:200;
 }
-.bnav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 14px;border:none;background:none;cursor:pointer;color:var(--dim);font-size:10px;font-weight:700;border-radius:10px;transition:.15s;letter-spacing:.3px;text-transform:uppercase;font-family:'Barlow',sans-serif}
+.bnav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 8px;border:none;background:none;cursor:pointer;color:var(--dim);font-size:10px;font-weight:700;border-radius:10px;transition:.15s;letter-spacing:.3px;text-transform:uppercase;font-family:'Barlow',sans-serif;min-width:0;flex:1}
 .bnav-btn.act{color:var(--red)}
-.bnav-btn .pip{width:38px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.bnav-btn .pip{width:36px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;transition:.15s}
 .bnav-btn.act .pip{background:var(--red-lo)}
+@media (hover: hover) { .bnav-btn:not(.act):hover { color: var(--muted); } }
 .bnav-btn svg{transition:.15s}
 
 /* ── Cards ── */
@@ -483,6 +484,7 @@ dialog:not([open]){display:none}
 /* ── Match card cricket style ── */
 .match-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:.2s}
 .match-card:active{transform:scale(.99)}
+@media (hover: hover) { .match-card:hover { border-color: var(--border2); background: var(--s2); } }
 .match-card-live{border-color:rgba(249,115,22,.25);box-shadow:0 0 24px rgba(249,115,22,.08)}
 .match-card-hdr{padding:10px 14px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .match-card-body{padding:12px 14px}
@@ -529,6 +531,14 @@ dialog:not([open]){display:none}
 /* ── Worm graph ── */
 .worm-container{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:14px;overflow:hidden}
 .worm-svg{width:100%;height:auto;display:block}
+
+/* ── Spinner utility ── */
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0}
+.spinner-muted{border-color:var(--border2);border-top-color:var(--muted)}
+
+/* ── Focus visible ring — keyboard nav ── */
+:focus-visible{outline:2px solid var(--live);outline-offset:2px;border-radius:4px}
+button:focus-visible,.btn:focus-visible,.sbtn:focus-visible{outline:2px solid var(--live);outline-offset:2px}
 
 /* ── Generic Buttons ── */
 .icon-btn {

@@ -1,6 +1,6 @@
 'use client';
 import React, { useState } from 'react';
-import type { ExtraType } from '@/types/cricket';
+import type { ExtraType, Player } from '@/types/cricket';
 
 interface ScoringPadProps {
   onScore: (runs: number, extraType?: ExtraType, extraRuns?: number) => void;
@@ -9,18 +9,21 @@ interface ScoringPadProps {
   onUndo: () => void;
   onSwapStrike: () => void;
   onEndOverEarly?: () => void;
+  onCatchDrop?: (fielderId: string) => void;
+  fieldingTeamPlayers?: Player[];
   isFreehitNext: boolean;
   canUndo: boolean;
   disabled?: boolean;
 }
 
-function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, onEndOverEarly, isFreehitNext, canUndo, disabled }: ScoringPadProps) {
+function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, onEndOverEarly, onCatchDrop, fieldingTeamPlayers, isFreehitNext, canUndo, disabled }: ScoringPadProps) {
   const [noBallRuns, setNoBallRuns] = useState(0);
   const [showNoBallExtra, setShowNoBallExtra] = useState(false);
   const [showWideExtra, setShowWideExtra] = useState(false);
   const [wideRuns, setWideRuns] = useState(1);
   const [showByeExtra, setShowByeExtra] = useState(false);
   const [showLbExtra, setShowLbExtra] = useState(false);
+  const [showDropPicker, setShowDropPicker] = useState(false);
 
   const vibrate = (pattern: number | number[]) => {
     if ('vibrate' in navigator) navigator.vibrate(pattern);
@@ -193,8 +196,32 @@ function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, on
         <button className="sbtn s6" style={{ height: '50px' }} onClick={() => handleScore(6)}>6</button>
       </div>
 
+      {/* Drop catch fielder picker */}
+      {showDropPicker && onCatchDrop && (
+        <div style={{ background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.25)', borderRadius: '12px', padding: '12px', marginBottom: '10px' }}>
+          <p style={{ color: '#fbbf24', fontSize: '12px', fontWeight: 700, marginBottom: '8px', fontFamily: 'Barlow, sans-serif' }}>
+            🙈 Dropped by whom?
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {(fieldingTeamPlayers ?? []).map(p => (
+              <button
+                key={p.id}
+                onClick={() => { onCatchDrop(p.id); setShowDropPicker(false); }}
+                className="sbtn"
+                style={{ fontSize: '12px', padding: '6px 10px', height: 'auto', color: 'var(--txt)' }}
+              >
+                {p.name}
+              </button>
+            ))}
+            <button onClick={() => setShowDropPicker(false)} className="sbtn" style={{ height: 'auto', padding: '6px 10px', color: 'var(--muted)', fontSize: '11px' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Wicket + Extras */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '8px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '8px' }}>
         <button
           className="sbtn sW"
           style={{ height: '48px', opacity: isFreehitNext ? 0.3 : 1 }}
@@ -203,10 +230,19 @@ function ScoringPad({ onScore, onWicket, onRetiredHurt, onUndo, onSwapStrike, on
         >
           {isFreehitNext ? 'FH' : 'Wkt'}
         </button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowWideExtra(v => !v); setShowNoBallExtra(false); setShowByeExtra(false); setShowLbExtra(false); }}>Wd</button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowNoBallExtra(v => !v); setShowWideExtra(false); setShowByeExtra(false); setShowLbExtra(false); }}>Nb</button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowByeExtra(v => !v); setShowNoBallExtra(false); setShowWideExtra(false); setShowLbExtra(false); }}>B</button>
-        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowLbExtra(v => !v); setShowNoBallExtra(false); setShowWideExtra(false); setShowByeExtra(false); }}>Lb</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowWideExtra(v => !v); setShowNoBallExtra(false); setShowByeExtra(false); setShowLbExtra(false); setShowDropPicker(false); }}>Wd</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowNoBallExtra(v => !v); setShowWideExtra(false); setShowByeExtra(false); setShowLbExtra(false); setShowDropPicker(false); }}>Nb</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowByeExtra(v => !v); setShowNoBallExtra(false); setShowWideExtra(false); setShowLbExtra(false); setShowDropPicker(false); }}>B</button>
+        <button className="sbtn sX" style={{ height: '48px' }} onClick={() => { setShowLbExtra(v => !v); setShowNoBallExtra(false); setShowWideExtra(false); setShowByeExtra(false); setShowDropPicker(false); }}>Lb</button>
+        {onCatchDrop && (
+          <button
+            className="sbtn"
+            style={{ height: '48px', fontSize: '11px', fontWeight: 800, background: showDropPicker ? 'rgba(251,191,36,.15)' : undefined, color: showDropPicker ? '#fbbf24' : 'var(--muted)', border: showDropPicker ? '1px solid rgba(251,191,36,.3)' : undefined }}
+            onClick={() => { setShowDropPicker(v => !v); setShowWideExtra(false); setShowNoBallExtra(false); setShowByeExtra(false); setShowLbExtra(false); }}
+          >
+            Drop
+          </button>
+        )}
       </div>
 
       {/* Run-out on free hit */}

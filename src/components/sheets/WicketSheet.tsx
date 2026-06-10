@@ -17,7 +17,8 @@ const WICKET_TYPES: { type: WicketType; label: string; icon: string; needsFielde
 interface WicketSheetProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: (type: WicketType, fielderId?: string, runsCompleted?: number) => void;
+  /** outBatsmanId: 'striker' | 'nonstriker' — only relevant for runout */
+  onConfirm: (type: WicketType, fielderId?: string, runsCompleted?: number, outBatsmanId?: 'striker' | 'nonstriker') => void;
   fieldingTeamPlayers: Player[];
   runsOffBat: number;
   isFreehit?: boolean;
@@ -42,7 +43,12 @@ export default function WicketSheet({ open, onClose, onConfirm, fieldingTeamPlay
   const handleConfirm = () => {
     if (!selectedType) return;
     if ('vibrate' in navigator) navigator.vibrate([100, 50, 100]);
-    onConfirm(selectedType, fielderId || undefined, selectedType === 'runout' ? runsCompleted : undefined);
+    onConfirm(
+      selectedType,
+      fielderId || undefined,
+      selectedType === 'runout' ? runsCompleted : undefined,
+      selectedType === 'runout' ? (outBatsmanId as 'striker' | 'nonstriker') : undefined,
+    );
     setSelectedType(null);
     setFielderId('');
     setRunsCompleted(0);

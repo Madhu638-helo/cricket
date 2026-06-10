@@ -8,7 +8,7 @@ export async function POST(
 ) {
   const { code } = await params;
   const body = await request.json();
-  const { balls = [], sessionId, matchId, inningsId, battingTeamId } = body;
+  const { balls = [], sessionId, matchId, inningsId, battingTeamId, catchDrops = [] } = body;
 
   const sessionData = await getUserSession();
   if (!sessionData) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -32,8 +32,8 @@ export async function POST(
     supabase.from('matches').select('*').eq('id', matchId).single(),
     supabase.from('innings').select('*').eq('id', inningsId).eq('status', 'active').single(),
     supabase.from('players').select('*').eq('session_id', sessionId).eq('user_id', sessionData.id).maybeSingle(),
-    // Include jokers in all-out count — single batting: last player out = innings over
-    supabase.from('players').select('id').eq('team_id', battingTeamId),
+    // Non-joker batting team players only — jokers added separately to avoid double-count
+    supabase.from('players').select('id').eq('team_id', battingTeamId).eq('is_joker', false),
     supabase.from('partnerships').select('id,runs,balls,batsman1_id,batsman2_id').eq('innings_id', inningsId).is('wicket_number', null).maybeSingle()
   ]);
 
@@ -54,8 +54,9 @@ export async function POST(
     return NextResponse.json({ error: 'No balls provided' }, { status: 400 });
   }
 
-  // No -1: single batting allowed — innings ends only when ALL players out
-  const allOutLimit = (teamPlayers && teamPlayers.length > 0) ? teamPlayers.length : 10;
+  const { data: jokerPlayers } = await supabase
+    .from('players').select('id').eq('session_id', sessionId).eq('is_joker', true);
+  const allOutLimit = ((teamPlayers?.length ?? 0) + (jokerPlayers?.length ?? 0)) || 10;
 
   let currentRuns = innings.total_runs;
   let currentExtras = innings.total_extras;
@@ -81,7 +82,7 @@ export async function POST(
     // Ball speed from camera — nullable, set by camera operator
     ...(b.ball_speed_kmh != null ? { ball_speed_kmh: Number(b.ball_speed_kmh) } : {}),
   }));
-  const { error: ballError } = await supabase.from('balls').insert(ballInserts);
+  const { data: insertedBalls, error: ballError } = await supabase.from('balls').insert(ballInserts).select();
   if (ballError) throw new Error(ballError.message);
 
   // Process totals and partnership
@@ -166,10 +167,11 @@ export async function POST(
     total_wickets: currentWickets,
   }).eq('id', innings.id);
 
+  // Use insertedBalls (with real DB-assigned IDs) so viewer dedup by .id works correctly
   const tickerOp = supabase.from('score_tickers').upsert({
     session_id: session.id,
     data: {
-      new_balls: ballInserts,
+      new_balls: insertedBalls ?? ballInserts,
       innings_update: { id: innings.id, total_runs: currentRuns, total_balls: currentBalls, total_extras: currentExtras, total_wickets: currentWickets },
       match_update: { id: match.id, status: match.status }
     }
@@ -179,6 +181,32 @@ export async function POST(
 
   const targetChased = innings.innings_number === 2 && innings.target != null && currentRuns >= innings.target;
   const inningsOver = (currentBalls >= match.overs * 6) || (currentWickets >= allOutLimit) || targetChased;
+
+  // Update dropped_catches in fielding_career_stats for each catch drop this over
+  if (catchDrops.length > 0) {
+    const dropPlayerIds = catchDrops.map((d: any) => d.fielderId).filter(Boolean);
+    if (dropPlayerIds.length > 0) {
+      const { data: dropPlayers } = await supabase
+        .from('players').select('id, user_id').in('id', dropPlayerIds).not('user_id', 'is', null);
+      if (dropPlayers && dropPlayers.length > 0) {
+        const dropUserIds = dropPlayers.map((p: any) => p.user_id);
+        const { data: existingStats } = await supabase
+          .from('fielding_career_stats').select('user_id, dropped_catches').in('user_id', dropUserIds);
+        const statsMap = new Map((existingStats ?? []).map((s: any) => [s.user_id, s]));
+        await Promise.all(dropPlayers.map(async (p: any) => {
+          const dropCount = catchDrops.filter((d: any) => d.fielderId === p.id).length;
+          const existing = statsMap.get(p.user_id);
+          if (existing) {
+            await supabase.from('fielding_career_stats').update({
+              dropped_catches: (existing.dropped_catches ?? 0) + dropCount,
+            }).eq('user_id', p.user_id);
+          } else {
+            await supabase.from('fielding_career_stats').insert({ user_id: p.user_id, dropped_catches: dropCount });
+          }
+        }));
+      }
+    }
+  }
 
   return NextResponse.json({
     success: true,

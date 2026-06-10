@@ -184,9 +184,9 @@ function ScoreHeader({
               )}
 
               {/* Chase info */}
-              {target && needed !== null && (
+              {target && needed !== null && needed > 0 && (
                 <div style={{ fontSize: '11px', color: 'var(--red)', fontWeight: 700, fontFamily: 'Barlow, sans-serif', marginTop: '2px' }}>
-                  Need {Math.max(0, needed)} off {ballsLeft}b · RRR {rrr?.toFixed(2) ?? '-'}
+                  Need {needed} off {ballsLeft}b{rrr != null ? ` · RRR ${rrr.toFixed(2)}` : ''}
                 </div>
               )}
             </div>

@@ -116,9 +116,9 @@ export async function POST(
 
         // Prefetch team names + chasing team player count in parallel
         const [{ data: battingTeamData }, { data: bowlingTeamData }, { count: chasingPlayerCount }] = await Promise.all([
-          supabase.from('teams').select('name').eq('id', battingTeamId).single(),
-          supabase.from('teams').select('name').eq('id', bowlingTeamId).single(),
-          supabase.from('players').select('id', { count: 'exact', head: true }).eq('team_id', battingTeamId).eq('session_id', session.id),
+          battingTeamId ? supabase.from('teams').select('name').eq('id', battingTeamId).maybeSingle() : Promise.resolve({ data: null }),
+          bowlingTeamId ? supabase.from('teams').select('name').eq('id', bowlingTeamId).maybeSingle() : Promise.resolve({ data: null }),
+          battingTeamId ? supabase.from('players').select('id', { count: 'exact', head: true }).eq('team_id', battingTeamId).eq('session_id', session.id) : Promise.resolve({ count: 11 }),
         ]);
         // In cricket, a team can only lose (teamSize - 1) wickets before being all-out
         const maxWickets = (chasingPlayerCount ?? 11) - 1;
@@ -145,23 +145,29 @@ export async function POST(
         const { data: matchBalls } = await supabase.from('balls').select('*')
           .in('innings_id', [innings1?.id, innings2?.id].filter(Boolean));
         const { data: matchPlayers } = await supabase.from('players')
-          .select('id,user_id,name').eq('session_id', session.id).not('user_id', 'is', null);
+          .select('id,user_id,name,team_id').eq('session_id', session.id).not('user_id', 'is', null);
 
         console.log(`[CAREER STATS UPDATE] session=${session.id} matchBalls=${matchBalls?.length} matchPlayers=${matchPlayers?.length}`);
 
         if (matchBalls && matchPlayers) {
           const userIds = matchPlayers.map((p: any) => p.user_id);
 
-          // Batch fetch all existing career stats in 3 queries total (not per-player)
-          const [{ data: allBatting }, { data: allBowling }, { data: allFielding }] = await Promise.all([
-            supabase.from('batting_career_stats').select('*').in('user_id', userIds),
-            supabase.from('bowling_career_stats').select('*').in('user_id', userIds),
-            supabase.from('fielding_career_stats').select('*').in('user_id', userIds),
-          ]);
+          let allBatting: any[] = [], allBowling: any[] = [], allFielding: any[] = [];
+          if (userIds.length > 0) {
+            // Batch fetch all existing career stats in 3 queries total (not per-player)
+            const [batRes, bowlRes, fieldRes] = await Promise.all([
+              supabase.from('batting_career_stats').select('*').in('user_id', userIds),
+              supabase.from('bowling_career_stats').select('*').in('user_id', userIds),
+              supabase.from('fielding_career_stats').select('*').in('user_id', userIds),
+            ]);
+            allBatting = batRes.data ?? [];
+            allBowling = bowlRes.data ?? [];
+            allFielding = fieldRes.data ?? [];
+          }
 
-          const battingMap = new Map((allBatting ?? []).map((r: any) => [r.user_id, r]));
-          const bowlingMap = new Map((allBowling ?? []).map((r: any) => [r.user_id, r]));
-          const fieldingMap = new Map((allFielding ?? []).map((r: any) => [r.user_id, r]));
+          const battingMap = new Map(allBatting.map((r: any) => [r.user_id, r]));
+          const bowlingMap = new Map(allBowling.map((r: any) => [r.user_id, r]));
+          const fieldingMap = new Map(allFielding.map((r: any) => [r.user_id, r]));
 
           // Run all player stat updates in parallel — each player is independent
           await Promise.all(matchPlayers.map(async (p: any) => {
@@ -169,6 +175,7 @@ export async function POST(
             const pBalls = matchBalls.filter((b: any) => b.batsman_id === p.id);
             const bowledBalls = matchBalls.filter((b: any) => b.bowler_id === p.id);
             const fielderWickets = matchBalls.filter((b: any) => b.is_wicket && b.fielder_id === p.id);
+            const fielderDrops = matchBalls.filter((b: any) => !b.is_wicket && b.wicket_type === 'dropped' && b.fielder_id === p.id);
 
             const runs = pBalls.reduce((s: number, b: any) => s + (b.runs_off_bat || 0), 0);
             const ballsFaced = pBalls.filter((b: any) => b.extra_type !== 'wide').length;
@@ -246,9 +253,12 @@ export async function POST(
               const newOvers = parseFloat(`${Math.floor(totalBalls / 6)}.${totalBalls % 6}`);
               const newRuns = (existing?.runs_conceded ?? 0) + runsGiven;
               const newWkts = (existing?.wickets ?? 0) + wicketsTaken;
-              const existingBestWkts = parseInt(existing?.best_figures?.split('/')[0] ?? '0', 10);
+              const rawBestWkts = parseInt(existing?.best_figures?.split('/')[0] ?? '0', 10);
+              const existingBestWkts = isNaN(rawBestWkts) ? 0 : rawBestWkts;
+              const rawBestRuns = parseInt(existing?.best_figures?.split('/')[1] ?? '9999', 10);
+              const existingBestRuns = isNaN(rawBestRuns) ? 9999 : rawBestRuns;
               const isBetterFigure = wicketsTaken > existingBestWkts ||
-                (wicketsTaken === existingBestWkts && runsGiven < parseInt(existing?.best_figures?.split('/')[1] ?? '9999', 10));
+                (wicketsTaken === existingBestWkts && runsGiven < existingBestRuns);
               const bestFig = wicketsTaken > 0 && isBetterFigure ? `${wicketsTaken}/${runsGiven}` : (existing?.best_figures ?? '-');
 
               if (existing) {
@@ -277,23 +287,56 @@ export async function POST(
               }
             }
 
-            if (fielderWickets.length > 0) {
+            if (fielderWickets.length > 0 || fielderDrops.length > 0) {
               const catches = fielderWickets.filter((b: any) => b.wicket_type === 'caught').length;
               const runOuts = fielderWickets.filter((b: any) => b.wicket_type === 'runout').length;
               const stumpings = fielderWickets.filter((b: any) => b.wicket_type === 'stumped').length;
+              const drops = fielderDrops.length;
               const existing = fieldingMap.get(p.user_id);
               if (existing) {
                 await supabase.from('fielding_career_stats').update({
                   catches: existing.catches + catches,
+                  dropped_catches: (existing.dropped_catches ?? 0) + drops,
                   run_outs: existing.run_outs + runOuts,
                   stumpings: existing.stumpings + stumpings,
                   updated_at: new Date().toISOString(),
                 }).eq('user_id', p.user_id);
               } else {
-                await supabase.from('fielding_career_stats').insert({ user_id: p.user_id, catches, run_outs: runOuts, stumpings });
+                await supabase.from('fielding_career_stats').insert({ user_id: p.user_id, catches, dropped_catches: drops, run_outs: runOuts, stumpings });
               }
             }
           }));
+
+          // Update Win/Loss/Tie records in the users table
+          if (userIds.length > 0) {
+            const { data: allUsers } = await supabase.from('users').select('id, matches_played, matches_won, matches_lost, matches_tied').in('id', userIds);
+            if (allUsers) {
+              const userMap = new Map(allUsers.map((u: any) => [u.id, u]));
+              await Promise.all(matchPlayers.map(async (p: any) => {
+                if (!p.user_id) return;
+                const u = userMap.get(p.user_id);
+                if (!u) return;
+
+                let won = 0, lost = 0, tied = 0;
+                // Jokers don't have a team_id, so they only increment matches_played
+                if (p.team_id) {
+                  if (winnerId) {
+                    if (p.team_id === winnerId) won = 1;
+                    else lost = 1;
+                  } else {
+                    tied = 1; // tied match
+                  }
+                }
+
+                await supabase.from('users').update({
+                  matches_played: (u.matches_played || 0) + 1,
+                  matches_won: (u.matches_won || 0) + won,
+                  matches_lost: (u.matches_lost || 0) + lost,
+                  matches_tied: (u.matches_tied || 0) + tied
+                }).eq('id', p.user_id);
+              }));
+            }
+          }
         }
 
         return NextResponse.json({ success: true, result, matchOver: true });
@@ -324,8 +367,36 @@ export async function POST(
         });
       }
 
+      // Auto-flip scorer: Team A's scorer → Team B's scorer
+      // Find the current scorer (Team A) and a scorer-candidate on Team B.
+      // Scorer candidate = player on battingTeamId with is_scorer=true already (pre-assigned),
+      // OR fall back to the captain of that team, OR first player on that team.
+      const { data: allPlayers } = await supabase
+        .from('players')
+        .select('id, team_id, is_scorer, is_captain')
+        .eq('session_id', session.id);
+
+      if (allPlayers && allPlayers.length > 0) {
+        const currentScorer = allPlayers.find((p: any) => p.is_scorer);
+        // Find the best candidate on the NEW batting team:
+        // priority: already-flagged scorer on that team → captain → first player on team
+        const teamBPlayers = allPlayers.filter((p: any) => p.team_id === battingTeamId);
+        const newScorer =
+          teamBPlayers.find((p: any) => p.is_scorer && p.id !== currentScorer?.id) ??
+          teamBPlayers.find((p: any) => p.is_captain) ??
+          teamBPlayers[0];
+
+        if (currentScorer && newScorer && currentScorer.id !== newScorer.id) {
+          await Promise.all([
+            supabase.from('players').update({ is_scorer: false }).eq('id', currentScorer.id),
+            supabase.from('players').update({ is_scorer: true }).eq('id', newScorer.id),
+          ]);
+        }
+      }
+
       return NextResponse.json({ success: true, innings2Id: innings2?.id });
     }
+
 
     // New match in same session
     case 'new_match': {
@@ -418,9 +489,11 @@ export async function POST(
     // Transfer scorer role
     case 'transfer_scorer': {
       const { currentScorerId, newScorerId } = data;
-      // Atomically remove from old, give to new
-      await supabase.from('players').update({ is_scorer: false }).eq('id', currentScorerId);
-      await supabase.from('players').update({ is_scorer: true }).eq('id', newScorerId);
+      // Run both updates in parallel — avoids a brief window where no scorer exists
+      await Promise.all([
+        supabase.from('players').update({ is_scorer: false }).eq('id', currentScorerId),
+        supabase.from('players').update({ is_scorer: true }).eq('id', newScorerId),
+      ]);
       return NextResponse.json({ success: true });
     }
 
@@ -662,7 +735,7 @@ export async function POST(
         overs: overs || 10,
         team1_id: team1Id,
         team2_id: team2Id,
-        status: 'toss',
+        status: data.status || 'toss',
       }).select().single();
 
       return NextResponse.json({ success: true, match: newMatch });

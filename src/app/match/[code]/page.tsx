@@ -18,6 +18,7 @@ import ManageTeamsSheet from '@/components/sheets/ManageTeamsSheet';
 import BattingTable from '@/components/scorecard/BattingTable';
 import BowlingTable from '@/components/scorecard/BowlingTable';
 import SessionStandings from '@/components/scorecard/SessionStandings';
+import ChampionsView from '@/components/scorecard/ChampionsView';
 import FallOfWickets from '@/components/scoring/FallOfWickets';
 import ManhattanChart from '@/components/scoring/ManhattanChart';
 import SpectatorView from '@/components/scoring/SpectatorView';
@@ -57,6 +58,9 @@ export default function MatchPage({ params }: PageProps) {
   const [nonStrikerId, setNonStrikerId] = useState<string>('');
   const [bowlerId, setBowlerId] = useState<string>('');
   const [pendingBalls, setPendingBalls] = useState<any[]>([]);
+  const [pendingNewBatsman, setPendingNewBatsman] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [catchDrops, setCatchDrops] = useState<{ fielderId: string }[]>([]);
   const [submittedTotal, setSubmittedTotal] = useState<{ runs: number; balls: number; wickets: number } | null>(null);
   const [innings1Target, setInnings1Target] = useState<number>(0);
   const [previousOverBowlerId, setPreviousOverBowlerId] = useState<string>('');
@@ -73,7 +77,8 @@ export default function MatchPage({ params }: PageProps) {
     const matchStartMs = new Date(match.created_at).getTime();
     const expectedEndMs = matchStartMs + estimatedMinutes * 60 * 1000;
     const graceMs = 30 * 60 * 1000;
-    if (Date.now() > expectedEndMs + graceMs) {
+    if (Date.now() > expectedEndMs + graceMs && !hasAutoClosedRef.current) {
+      hasAutoClosedRef.current = true;
       fetch(`/api/match/${code}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,6 +88,7 @@ export default function MatchPage({ params }: PageProps) {
   }, [match?.id, match?.status]);
 
   const meRef = React.useRef<{ id: string; name: string } | null>(null);
+  const hasAutoClosedRef = React.useRef(false);
 
   useEffect(() => {
     // Only re-fetch /api/auth/me once (or when session changes owner_id).
@@ -120,6 +126,8 @@ export default function MatchPage({ params }: PageProps) {
       setNonStrikerId('');
       setBowlerId('');
       setPendingBalls([]);
+      setPendingNewBatsman(false);
+      setIsSubmitting(false);
       setSubmittedTotal(null);
       setActiveTab('score');
       setInnings1Target(0);
@@ -204,42 +212,59 @@ export default function MatchPage({ params }: PageProps) {
     total_balls: Math.max(currentInnings.total_balls + pendingLegal, submittedTotal?.balls ?? 0),
   } : null, [currentInnings, pendingRuns, pendingWickets, pendingLegal, submittedTotal]);
 
-  // Clear submittedTotal once DB confirms (realtime innings UPDATE catches up)
+  // Clear submittedTotal once DB confirms OR when innings changes (innings transition bug:
+  // innings 2 starts with 0 balls, Math.max(0, innings1_balls) would show wrong score)
   useEffect(() => {
-    if (!submittedTotal || !currentInnings) return;
-    if (currentInnings.total_balls >= submittedTotal.balls) setSubmittedTotal(null);
-  }, [currentInnings?.total_balls]);
+    if (!submittedTotal) return;
+    if (!currentInnings || currentInnings.total_balls >= submittedTotal.balls) setSubmittedTotal(null);
+  }, [currentInnings?.total_balls, currentInnings?.id]);
 
   const crr = useMemo(() => liveInnings && liveInnings.total_balls > 0
     ? Math.round((liveInnings.total_runs / (liveInnings.total_balls / 6)) * 100) / 100
     : 0, [liveInnings?.total_runs, liveInnings?.total_balls]);
-  const rrr = useMemo(() => liveInnings?.target && liveInnings.total_balls < (match?.overs ?? 0) * 6
-    ? Math.round(((liveInnings.target - liveInnings.total_runs) / (((match?.overs ?? 0) * 6 - liveInnings.total_balls) / 6)) * 100) / 100
-    : null, [liveInnings?.target, liveInnings?.total_runs, liveInnings?.total_balls, match?.overs]);
+  const rrr = useMemo(() => {
+    if (!liveInnings?.target || liveInnings.total_runs >= liveInnings.target) return null;
+    const ballsLeft = (match?.overs ?? 0) * 6 - liveInnings.total_balls;
+    if (ballsLeft <= 0) return null;
+    return Math.round(((liveInnings.target - liveInnings.total_runs) / (ballsLeft / 6)) * 100) / 100;
+  }, [liveInnings?.target, liveInnings?.total_runs, liveInnings?.total_balls, match?.overs]);
   const isFreehitNext = useMemo(() => inningsBalls[inningsBalls.length - 1]?.extra_type === 'noball', [inningsBalls]);
 
   const submitOver = useCallback((overBalls: any[]) => {
     if (overBalls.length === 0) return;
-    
-    // 1. Lock in optimistic totals immediately
+
+    // Prevent double-submission from rapid taps
+    setIsSubmitting(true);
+
+    // 1. Lock in optimistic totals from overBalls param (not stale state)
+    const bRuns = overBalls.reduce((s: number, b: any) => s + (b.runs_off_bat ?? 0) + (b.extras ?? 0), 0);
+    const bLegal = overBalls.filter((b: any) => b.extra_type !== 'wide' && b.extra_type !== 'noball').length;
+    const bWickets = overBalls.filter((b: any) => b.is_wicket).length;
     setSubmittedTotal({
-      runs: currentInnings ? currentInnings.total_runs + pendingRuns : 0,
-      balls: currentInnings ? currentInnings.total_balls + pendingLegal : 0,
-      wickets: currentInnings ? currentInnings.total_wickets + pendingWickets : 0,
+      runs: currentInnings ? currentInnings.total_runs + bRuns : 0,
+      balls: currentInnings ? currentInnings.total_balls + bLegal : 0,
+      wickets: currentInnings ? currentInnings.total_wickets + bWickets : 0,
     });
     setPendingBalls([]);
+    const dropsSnapshot = catchDrops.slice();
+    setCatchDrops([]);
 
     // 2. Optimistically determine if innings is over
-    const totalWicketsOpt = (currentInnings?.total_wickets ?? 0) + pendingWickets;
-    const totalBallsOpt = (currentInnings?.total_balls ?? 0) + pendingLegal;
-    const totalRunsOpt = (currentInnings?.total_runs ?? 0) + pendingRuns;
+    const totalWicketsOpt = (currentInnings?.total_wickets ?? 0) + bWickets;
+    const totalBallsOpt = (currentInnings?.total_balls ?? 0) + bLegal;
+    const totalRunsOpt = (currentInnings?.total_runs ?? 0) + bRuns;
     // No -1: single batting allowed — everyone must be out for innings to end
     const allOutLimit = battingPlayers.length || 10;
     const targetChased = currentInnings?.innings_number === 2 && currentInnings.target != null && totalRunsOpt >= currentInnings.target;
     const inningsOverOpt = (totalBallsOpt >= (match?.overs ?? 0) * 6) || (totalWicketsOpt >= allOutLimit) || targetChased;
 
     if (inningsOverOpt) {
-      setShowInningsBreak(true);
+      if (currentInnings?.innings_number === 1) {
+        setShowInningsBreak(true);
+      } else {
+        // Innings 2 end — API sets match to result, realtime updates UI
+        showToast('Match complete! Calculating result…', 'success');
+      }
     } else {
       setPreviousOverBowlerId(bowlerId);
       setShowBowler(true);
@@ -249,12 +274,13 @@ export default function MatchPage({ params }: PageProps) {
     fetch(`/api/match/${code}/over`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         balls: overBalls,
         sessionId: session?.id,
         matchId: match?.id,
         inningsId: currentInnings?.id,
-        battingTeamId: currentInnings?.team_id
+        battingTeamId: currentInnings?.team_id,
+        catchDrops: dropsSnapshot,
       })
     })
     .then(res => res.json())
@@ -269,14 +295,17 @@ export default function MatchPage({ params }: PageProps) {
         if (actionData.target) setInnings1Target(actionData.target);
       } else if (!result.success) {
         showToast(result.error || 'Failed to submit over', 'error');
-        setSubmittedTotal(null); // Will snap back to realtime DB state
+        setSubmittedTotal(null);
       }
     })
     .catch(() => {
       showToast('Network error submitting over', 'error');
       setSubmittedTotal(null);
+    })
+    .finally(() => {
+      setIsSubmitting(false);
     });
-  }, [code, currentInnings, pendingRuns, pendingWickets, pendingLegal, session?.id, match?.id, match?.overs, battingPlayers, bowlerId, showToast]);
+  }, [code, currentInnings, pendingRuns, pendingWickets, pendingLegal, catchDrops, session?.id, match?.id, match?.overs, battingPlayers, bowlerId, showToast]);
 
   const handleTransferScorer = async (newScorerId: string) => {
     try {
@@ -404,14 +433,28 @@ export default function MatchPage({ params }: PageProps) {
     setStrikerId(nextStriker);
     setNonStrikerId(nextNonStriker);
     
-    if (payload.is_wicket && !allOut) {
-      // remainingBatsmen = total players - wickets already fallen (including this ball)
+    if (payload.is_wicket && !allOut && !targetChased) {
       const remainingBatsmen = battingPlayers.length - wickets;
-      if (remainingBatsmen === 1) {
-        // Last batsman — non-striker bats alone, no new player to pick
-        setStrikerId(nextNonStriker);   // surviving non-striker becomes striker
-        setNonStrikerId('single');       // no partner
+      const nonStrikerRunOut = !!payload.runout_nonstriker;
+
+      if (overComplete) {
+        // Over ended on a wicket — defer new player prompt until after bowler is selected
+        setPendingNewBatsman(true);
+        // If non-striker was run out, they stay on the non-striker side for the deferred prompt
+        // strikerId/nonStrikerId already set to correct values above
+      } else if (remainingBatsmen === 1 && !nonStrikerRunOut) {
+        // Striker dismissed, one player left — non-striker bats alone
+        setStrikerId(nextNonStriker);
+        setNonStrikerId('single');
         showToast('⚡ Last batsman — playing solo', 'info', 2500);
+      } else if (nonStrikerRunOut) {
+        // Non-striker was run out — striker stays, new player fills non-striker slot
+        if (remainingBatsmen === 1) {
+          setNonStrikerId('single');
+          showToast('⚡ Last batsman — playing solo', 'info', 2500);
+        } else {
+          setShowNonStriker(true);
+        }
       } else {
         setShowBatsman(true);
       }
@@ -426,8 +469,14 @@ export default function MatchPage({ params }: PageProps) {
     setShowWicket(true);
   };
 
-  const handleWicketConfirm = async (wicketType: WicketType, fielderId?: string, runsCompleted?: number) => {
-    processLocalBall({ runs_off_bat: runsCompleted ?? 0, extra_type: null, extras: 0, is_wicket: true, wicket_type: wicketType, fielder_id: fielderId });
+  const handleWicketConfirm = async (wicketType: WicketType, fielderId?: string, runsCompleted?: number, outBatsmanId?: 'striker' | 'nonstriker') => {
+    processLocalBall({
+      runs_off_bat: runsCompleted ?? 0,
+      extra_type: null, extras: 0,
+      is_wicket: true, wicket_type: wicketType, fielder_id: fielderId,
+      // For run-out: track which batsman was dismissed so the UI shows the right replacement prompt
+      runout_nonstriker: wicketType === 'runout' && outBatsmanId === 'nonstriker',
+    });
   };
 
   const undoLastBall = () => {
@@ -451,6 +500,11 @@ export default function MatchPage({ params }: PageProps) {
       }
     }
   };
+
+  const handleCatchDrop = useCallback((fielderId: string) => {
+    setCatchDrops(prev => [...prev, { fielderId }]);
+    showToast('🙈 Catch drop recorded', 'info', 1500);
+  }, [showToast]);
 
   const swapStrike = () => {
     if (nonStrikerId === 'single') return;
@@ -820,6 +874,11 @@ export default function MatchPage({ params }: PageProps) {
                               method: 'POST', headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ action: 'undo_last_over', data: { inningsId: currentInnings?.id, matchId: match?.id } }),
                             });
+                            // Reset on-field state so the sync effect repopulates from the last remaining ball
+                            setStrikerId('');
+                            setNonStrikerId('');
+                            setBowlerId('');
+                            setPendingNewBatsman(false);
                             showToast('Last over undone', 'info');
                           } catch {
                             showToast('Failed to undo last over', 'error');
@@ -859,13 +918,15 @@ export default function MatchPage({ params }: PageProps) {
                     onRetiredHurt={() => setShowBatsman(true)}
                     onUndo={undoLastBall}
                     onSwapStrike={swapStrike}
+                    onCatchDrop={handleCatchDrop}
+                    fieldingTeamPlayers={fieldingTeamPlayers}
                     onEndOverEarly={pendingBalls.length > 0 ? () => {
                       showToast('⏩ Ending over early...', 'info', 2000);
                       submitOver(pendingBalls);
                     } : undefined}
                     isFreehitNext={isFreehitNext}
                     canUndo={pendingBalls.length > 0}
-                    disabled={showBatsman || showBowler || showWicket || showNonStriker}
+                    disabled={showBatsman || showBowler || showWicket || showNonStriker || isSubmitting}
                   />
                   <FallOfWickets balls={inningsBalls} />
                 </>
@@ -1008,6 +1069,11 @@ export default function MatchPage({ params }: PageProps) {
           {activeTab === 'session' && (
             <SessionStandings code={code} />
           )}
+
+          {/* CHAMPIONS TAB */}
+          {activeTab === 'champions' && (
+            <ChampionsView code={code} />
+          )}
         </div>
       </div>
 
@@ -1070,6 +1136,11 @@ export default function MatchPage({ params }: PageProps) {
             showToast('⚠️ Same bowler — consecutive overs!', 'error', 3000);
           }
           setBowlerId(id);
+          // If last ball of previous over was a wicket, show new batsman picker now
+          if (pendingNewBatsman) {
+            setPendingNewBatsman(false);
+            setShowBatsman(true);
+          }
         }}
         players={bowlingPlayers}
         title="Select Bowler"
@@ -1126,8 +1197,8 @@ export default function MatchPage({ params }: PageProps) {
       <TransferScorerSheet
         isOpen={showTransferScorer}
         onClose={() => setShowTransferScorer(false)}
-        teamPlayers={players.filter(p => p.team_id === currentInnings?.team_id)}
-        currentScorerId={players.find(p => p.user_id === session?.owner_id || p.is_scorer)?.id || ''} // Using ID directly, wait... Actually we just need current scorer id
+        teamPlayers={players.filter(p => p.team_id !== null && !p.is_joker)}
+        currentScorerId={players.find(p => p.is_scorer)?.id || ''}
         onTransfer={handleTransferScorer}
       />
 

@@ -76,11 +76,18 @@ const LayersIcon = () => (
   </svg>
 );
 
+const CrownIcon = () => (
+  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 18h18M3 18l2-8 4.5 4L12 6l2.5 8L19 10l2 8H3z"/>
+  </svg>
+);
+
 const matchTabs = [
   { key: 'score', label: 'Live', icon: <LiveIcon /> },
   { key: 'stats', label: 'Stats', icon: <PieIcon /> },
   { key: 'scorecard', label: 'Card', icon: <CardIcon /> },
   { key: 'session', label: 'Session', icon: <LayersIcon /> },
+  { key: 'champions', label: 'Champs', icon: <CrownIcon /> },
 ];
 
 interface MatchTabBarProps {

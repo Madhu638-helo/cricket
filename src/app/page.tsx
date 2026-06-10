@@ -1,6 +1,7 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import BottomNavigation from '@/components/nav/BottomTabBar';
 
 interface UserInfo { id: string; name: string }
@@ -34,9 +35,12 @@ export default function HomePage() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [liveMatches, setLiveMatches] = useState<any[]>([]);
   const [upcomingMatches, setUpcomingMatches] = useState<any[]>([]);
+  const [champions, setChampions] = useState<{ name: string; wins: number }[]>([]);
   const [stats, setStats] = useState({ runs: 0, wickets: 0, catches: 0, mvps: 0 });
   const [displayStats, setDisplayStats] = useState({ runs: 0, wickets: 0, catches: 0, mvps: 0 });
   const [joinCode, setJoinCode] = useState('');
+  const [dashLoading, setDashLoading] = useState(true);
+  const supabase = useRef(createClient()).current;
 
   // Animated counter — ease-out quad, 0 → target over 700ms
   useEffect(() => {
@@ -60,6 +64,15 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [stats]);
 
+  // Lightweight refresh — only updates live match scores, no full dashboard reload
+  const refreshLive = useCallback(async () => {
+    const res = await fetch('/api/user/dashboard', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      setLiveMatches(data.liveMatches || []);
+    }
+  }, []);
+
   useEffect(() => {
     try {
       const cached = localStorage.getItem('tc_dashboard');
@@ -79,20 +92,32 @@ export default function HomePage() {
         loadDashboard();
       })
       .catch(() => router.push('/login'));
-  }, [router]);
+
+    // Realtime: update live match scores when innings scores change
+    const channel = supabase.channel('home:live')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'innings' }, () => refreshLive())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' }, () => refreshLive())
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [router, supabase, refreshLive]);
 
   const loadDashboard = async () => {
+    setDashLoading(true);
     const res = await fetch('/api/user/dashboard', { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       const s = data.stats || { runs: 0, wickets: 0, catches: 0, mvps: 0 };
       const lm = data.liveMatches || [];
       const um = data.upcomingMatches || [];
+      const ch = data.champions || [];
       setStats(s);
       setLiveMatches(lm);
       setUpcomingMatches(um);
+      setChampions(ch);
       try { localStorage.setItem('tc_dashboard', JSON.stringify({ stats: s, liveMatches: lm, upcomingMatches: um })); } catch {}
     }
+    setDashLoading(false);
   };
 
   return (
@@ -315,7 +340,11 @@ export default function HomePage() {
             )}
           </div>
 
-          {liveMatches.length === 0 ? (
+          {dashLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="skel" style={{ height: '100px', borderRadius: '14px' }} />
+            </div>
+          ) : liveMatches.length === 0 ? (
             /* Empty state with pitch illustration */
             <div
               className="card"
@@ -630,6 +659,71 @@ export default function HomePage() {
             ))}
           </div>
         </section>
+
+        {/* ── Champions ── */}
+        {champions.length > 0 && (
+          <section className="anim-fade-up d5">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="#fbbf24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 18h18M3 18l2-8 4.5 4L12 6l2.5 8L19 10l2 8H3z"/>
+                </svg>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--muted)', letterSpacing: '1px', textTransform: 'uppercase', fontFamily: 'Barlow, sans-serif' }}>
+                  All-Time Wins
+                </span>
+              </div>
+              <button
+                onClick={() => router.push('/leaderboard')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--live)', fontWeight: 700, fontFamily: 'Barlow, sans-serif' }}
+              >
+                Rankings →
+              </button>
+            </div>
+
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '16px', overflow: 'hidden' }}>
+              {champions.map((c, i) => {
+                const isFirst = i === 0;
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
+                const maxWins = champions[0].wins;
+                const pct = maxWins > 0 ? (c.wins / maxWins) * 100 : 0;
+                return (
+                  <div
+                    key={c.name}
+                    style={{
+                      padding: '11px 14px',
+                      borderBottom: i < champions.length - 1 ? '1px solid var(--border)' : 'none',
+                      background: isFirst ? 'rgba(251,191,36,.04)' : 'transparent',
+                      display: 'flex', alignItems: 'center', gap: '10px',
+                    }}
+                  >
+                    {/* Rank / medal */}
+                    <div style={{ width: '24px', textAlign: 'center', flexShrink: 0, fontSize: '16px' }}>
+                      {medal ?? <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--dim)', fontFamily: 'Barlow Condensed, sans-serif' }}>{i + 1}</span>}
+                    </div>
+
+                    {/* Name + bar */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, fontFamily: 'Barlow, sans-serif', color: isFirst ? '#fbbf24' : 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '4px' }}>
+                        {c.name}
+                      </div>
+                      <div style={{ height: '3px', borderRadius: '2px', background: 'var(--s3)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: isFirst ? '#fbbf24' : 'var(--muted)', borderRadius: '2px', transition: 'width .5s cubic-bezier(.22,1,.36,1)' }} />
+                      </div>
+                    </div>
+
+                    {/* Win count */}
+                    <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                      <span style={{ fontSize: '20px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: isFirst ? '#fbbf24' : 'var(--txt)', lineHeight: 1 }}>{c.wins}</span>
+                      <div style={{ fontSize: '9px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                        {c.wins === 1 ? 'win' : 'wins'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
       </div>
 

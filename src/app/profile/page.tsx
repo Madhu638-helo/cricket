@@ -248,35 +248,54 @@ export default function ProfilePage() {
 
       <div className="anim-fade-up" style={{ padding: '0 20px' }}>
 
-        {/* Badges */}
-        {earnedBadges.length > 0 && (
-          <div style={{ marginBottom: '20px' }}>
-            <div style={{
-              fontSize: '11px', fontWeight: 700, color: 'var(--muted)',
-              textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: '10px',
-            }}>Badges Earned</div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {earnedBadges.map(b => (
+        {/* Badge wall — all badges, earned = bright, locked = dim */}
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: '10px' }}>
+            Badges
+            {earnedBadges.length > 0 && (
+              <span style={{ marginLeft: '6px', background: 'var(--live)', color: '#fff', fontSize: '9px', fontWeight: 800, padding: '1px 6px', borderRadius: '8px' }}>
+                {earnedBadges.length}/{BADGES.length}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+            {BADGES.map(b => {
+              const earned = b.condition(data);
+              return (
                 <div
                   key={b.id}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    background: 'var(--s2)', borderRadius: '20px', padding: '6px 12px',
-                    border: `1px solid ${b.color}30`,
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    background: earned ? 'var(--s2)' : 'transparent',
+                    borderRadius: '12px', padding: '10px 12px',
+                    border: earned ? `1px solid ${b.color}40` : '1px solid var(--border)',
+                    opacity: earned ? 1 : 0.4,
+                    transition: 'opacity .2s',
                   }}
                 >
                   {b.img ? (
-                    <img src={b.img} alt={b.label} style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+                    <img src={b.img} alt="" style={{ width: '28px', height: '28px', objectFit: 'contain', filter: earned ? 'none' : 'grayscale(1)', flexShrink: 0 }} />
                   ) : (
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: b.color, flexShrink: 0 }} />
+                    <div style={{
+                      width: '28px', height: '28px', borderRadius: '8px', flexShrink: 0,
+                      background: earned ? `${b.color}20` : 'var(--s3)',
+                      border: `1px solid ${earned ? b.color + '40' : 'var(--border)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '13px', fontWeight: 900, color: earned ? b.color : 'var(--dim)',
+                      fontFamily: 'Barlow Condensed, sans-serif',
+                    }}>
+                      {b.label}
+                    </div>
                   )}
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: b.color }}>{b.label}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--dim)' }}>{b.desc}</span>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: earned ? b.color : 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>{b.desc}</div>
+                    {!earned && <div style={{ fontSize: '10px', color: 'var(--dim)', fontFamily: 'Barlow, sans-serif' }}>Locked</div>}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        )}
+        </div>
 
         {/* Stats tab bar — uses CSS classes for light/dark auto-switch */}
         <div className="toggle" style={{ marginBottom: '20px' }}>
@@ -481,11 +500,16 @@ export default function ProfilePage() {
                   <div
                     key={m.id}
                     onClick={() => m.code && router.push(`/match/${m.code}`)}
+                    className="card-press"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => e.key === 'Enter' && m.code && router.push(`/match/${m.code}`)}
+                    aria-label={`View match: ${m.name ?? m.code}`}
                     style={{
                       background: 'var(--s1)', borderRadius: '12px', padding: '12px 16px',
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       border: '1px solid var(--border)', cursor: 'pointer',
-                      transition: 'background .15s',
+                      transition: 'background .15s, border-color .15s',
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>

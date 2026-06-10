@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Team, Match, Innings } from '@/types/cricket';
-import { calcNRR, formatOvers } from '@/lib/cricket/engine';
+import { calcNRR } from '@/lib/cricket/engine';
 
 interface SessionStandingsProps { code: string; }
 
@@ -20,60 +20,84 @@ export default function SessionStandings({ code }: SessionStandingsProps) {
   const [standings, setStandings] = useState<Standing[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
+  const sessionIdRef = useRef<string>('');
 
-  useEffect(() => {
-    const load = async () => {
-      const { data: session } = await supabase.from('sessions').select('*').eq('code', code).single();
-      if (!session) return;
+  const load = useCallback(async () => {
+    const { data: session } = await supabase.from('sessions').select('*').eq('code', code).single();
+    if (!session) return;
+    sessionIdRef.current = session.id;
 
-      const { data: teams } = await supabase.from('teams').select('*').eq('session_id', session.id);
-      const { data: matchList } = await supabase.from('matches').select('*').eq('session_id', session.id).eq('status', 'result');
-      const { data: inningsList } = await supabase.from('innings').select('*').in('match_id', (matchList ?? []).map((m: Match) => m.id));
+    const { data: teams } = await supabase.from('teams').select('*').eq('session_id', session.id);
+    const { data: matchList } = await supabase.from('matches').select('*').eq('session_id', session.id).eq('status', 'result');
+    const { data: inningsList } = await supabase.from('innings').select('*').in('match_id', (matchList ?? []).map((m: Match) => m.id));
 
-      if (!teams) return;
+    if (!teams) return;
 
-      const stats = teams.map((team: Team) => {
-        const played = (matchList ?? [] as Match[]).filter((m: Match) => m.team1_id === team.id || m.team2_id === team.id);
-        const won = played.filter((m: Match) => m.winner_id === team.id).length;
-        const lost = played.filter((m: Match) => m.winner_id !== null && m.winner_id !== team.id).length;
-        const tied = played.filter((m: Match) => m.winner_id === null).length;
+    const stats = teams.map((team: Team) => {
+      const played = (matchList ?? [] as Match[]).filter((m: Match) => m.team1_id === team.id || m.team2_id === team.id);
+      const won = played.filter((m: Match) => m.winner_id === team.id).length;
+      const lost = played.filter((m: Match) => m.winner_id !== null && m.winner_id !== team.id).length;
+      const tied = played.filter((m: Match) => m.winner_id === null).length;
 
-        // NRR calculation
-        let runsFor = 0, ballsFor = 0, runsAgainst = 0, ballsAgainst = 0;
-        let totalMatchBalls = 0;
-        played.forEach((m: Match) => {
-          const myInnings = (inningsList ?? [] as Innings[]).find((i: Innings) => i.match_id === m.id && i.team_id === team.id);
-          const oppInnings = (inningsList ?? [] as Innings[]).find((i: Innings) => i.match_id === m.id && i.team_id !== team.id);
-          
-          if (myInnings) {
-            runsFor += myInnings.total_runs;
-            const wasChasingAndWon = m.winner_id === team.id && myInnings.innings_number === 2;
-            // If they didn't successfully chase, and they batted fewer than max balls, they were bowled out
-            ballsFor += wasChasingAndWon ? myInnings.total_balls : Math.max(myInnings.total_balls, m.overs * 6);
-          }
-          if (oppInnings) {
-            runsAgainst += oppInnings.total_runs;
-            const oppWasChasingAndWon = m.winner_id === oppInnings.team_id && oppInnings.innings_number === 2;
-            ballsAgainst += oppWasChasingAndWon ? oppInnings.total_balls : Math.max(oppInnings.total_balls, m.overs * 6);
-          }
-          totalMatchBalls = Math.max(totalMatchBalls, m.overs * 6);
-        });
+      let runsFor = 0, ballsFor = 0, runsAgainst = 0, ballsAgainst = 0;
+      let totalMatchBalls = 0;
+      played.forEach((m: Match) => {
+        const myInnings = (inningsList ?? [] as Innings[]).find((i: Innings) => i.match_id === m.id && i.team_id === team.id);
+        const oppInnings = (inningsList ?? [] as Innings[]).find((i: Innings) => i.match_id === m.id && i.team_id !== team.id);
 
-        const nrr = played.length > 0
-          ? calcNRR(runsFor, ballsFor, totalMatchBalls, runsAgainst, ballsAgainst).toFixed(3)
-          : '+0.000';
-
-        return { team, played: played.length, won, lost, tied, points: won * 2 + tied, nrr };
+        if (myInnings) {
+          runsFor += myInnings.total_runs;
+          const wasChasingAndWon = m.winner_id === team.id && myInnings.innings_number === 2;
+          ballsFor += wasChasingAndWon ? myInnings.total_balls : Math.max(myInnings.total_balls, m.overs * 6);
+        }
+        if (oppInnings) {
+          runsAgainst += oppInnings.total_runs;
+          const oppWasChasingAndWon = m.winner_id === oppInnings.team_id && oppInnings.innings_number === 2;
+          ballsAgainst += oppWasChasingAndWon ? oppInnings.total_balls : Math.max(oppInnings.total_balls, m.overs * 6);
+        }
+        totalMatchBalls = Math.max(totalMatchBalls, m.overs * 6);
       });
 
-      stats.sort((a: Standing, b: Standing) => b.points - a.points || parseFloat(b.nrr) - parseFloat(a.nrr));
-      setStandings(stats);
-      setMatches(matchList ?? []);
-      setLoading(false);
-    };
-    load();
+      const nrr = played.length > 0
+        ? calcNRR(runsFor, ballsFor, totalMatchBalls, runsAgainst, ballsAgainst).toFixed(3)
+        : '+0.000';
+
+      return { team, played: played.length, won, lost, tied, points: won * 2 + tied, nrr };
+    });
+
+    stats.sort((a: Standing, b: Standing) => b.points - a.points || parseFloat(b.nrr) - parseFloat(a.nrr));
+    setStandings(stats);
+    setMatches(matchList ?? []);
+    setLoading(false);
   }, [code, supabase]);
+
+  useEffect(() => {
+    load();
+
+    // Realtime: reload whenever a match result is recorded in this session
+    const channel = supabase.channel(`standings:${code}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
+        (payload: any) => {
+          if (sessionIdRef.current && payload.new?.session_id !== sessionIdRef.current) return;
+          if (payload.new?.status === 'result') load();
+        })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' },
+        (payload: any) => {
+          if (sessionIdRef.current && payload.new?.session_id !== sessionIdRef.current) return;
+          load();
+        })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [load, supabase, code]);
+
+  // Determine session champion: team with strictly most wins (at least 1)
+  const champion = standings.length > 0 && standings[0].won > 0 &&
+    (standings.length === 1 || standings[0].won > standings[1].won)
+    ? standings[0]
+    : null;
 
   if (loading) return (
     <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif', fontSize: '13px' }}>
@@ -84,6 +108,28 @@ export default function SessionStandings({ code }: SessionStandingsProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Champion banner */}
+      {champion && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(250,204,21,.12), rgba(250,204,21,.04))',
+          border: '1px solid rgba(250,204,21,.3)',
+          borderRadius: '14px',
+          padding: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          <div style={{ fontSize: '36px', lineHeight: 1 }}>🏆</div>
+          <div>
+            <div style={{ fontSize: '10px', fontWeight: 800, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '.8px', fontFamily: 'Barlow, sans-serif', marginBottom: '2px' }}>Session Leader</div>
+            <div style={{ fontSize: '18px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: 'var(--txt)' }}>{champion.team.name}</div>
+            <div style={{ fontSize: '12px', color: 'var(--muted)', fontFamily: 'Barlow, sans-serif' }}>
+              {champion.won}W · {champion.lost}L · {champion.points} pts
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Standings table */}
       <div style={{ background: 'var(--s1)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

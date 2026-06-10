@@ -5,9 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 import { SignJWT } from 'jose';
 import * as crypto from 'crypto';
 
-const SUPABASE_URL  = 'https://udffcsnfpncxgkeaabvu.supabase.co';
-const SERVICE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkZmZjc25mcG5jeGdrZWFhYnZ1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDExOTAyMiwiZXhwIjoyMDk1Njk1MDIyfQ.w-fciHNBUK3Sr1xksZwRxaRhtSZ3uN1VU_uBVZSU0pk';
-const JWT_SECRET    = 'super-secret-cricket-admin-key';
+const SUPABASE_URL = 'https://udffcsnfpncxgkeaabvu.supabase.co';
+const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVkZmZjc25mcG5jeGdrZWFhYnZ1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDExOTAyMiwiZXhwIjoyMDk1Njk1MDIyfQ.w-fciHNBUK3Sr1xksZwRxaRhtSZ3uN1VU_uBVZSU0pk';
+const JWT_SECRET = 'super-secret-cricket-admin-key';
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -28,17 +28,17 @@ async function makeJWT(userId, name, username) {
 // shree_116 will be 11th (manual join)
 const TEST_PLAYERS = [
   // Team A (index 0..4)
-  { username: 'match_owner_a', name: 'Arjun Kapoor',    password: 'TestPass@1', role: 'match_owner' },
-  { username: 'batsman_a2',    name: 'Rohan Mehta',     password: 'TestPass@2', role: 'teammate_a'  },
-  { username: 'batsman_a3',    name: 'Karan Singh',     password: 'TestPass@3', role: null           },
-  { username: 'batsman_a4',    name: 'Vijay Sharma',    password: 'TestPass@4', role: null           },
-  { username: 'allrounder_a5', name: 'Dev Patel',       password: 'TestPass@5', role: null           },
+  { username: 'match_owner_a', name: 'Arjun Kapoor', password: 'TestPass@1', role: 'match_owner' },
+  { username: 'batsman_a2', name: 'Rohan Mehta', password: 'TestPass@2', role: 'teammate_a' },
+  { username: 'batsman_a3', name: 'Karan Singh', password: 'TestPass@3', role: null },
+  { username: 'batsman_a4', name: 'Vijay Sharma', password: 'TestPass@4', role: null },
+  { username: 'allrounder_a5', name: 'Dev Patel', password: 'TestPass@5', role: null },
   // Team B (index 5..9)
-  { username: 'scorer_b',      name: 'Rahul Verma',     password: 'TestPass@6', role: 'scorer_b'    },
-  { username: 'batsman_b2',    name: 'Suresh Kumar',    password: 'TestPass@7', role: null           },
-  { username: 'batsman_b3',    name: 'Amit Yadav',      password: 'TestPass@8', role: null           },
-  { username: 'batsman_b4',    name: 'Pradeep Joshi',   password: 'TestPass@9', role: null           },
-  { username: 'joker_player',  name: 'Vikram Nair',     password: 'TestPass@10', role: 'joker'      }, // Joker, no team
+  { username: 'scorer_b', name: 'Rahul Verma', password: 'TestPass@6', role: 'scorer_b' },
+  { username: 'batsman_b2', name: 'Suresh Kumar', password: 'TestPass@7', role: null },
+  { username: 'batsman_b3', name: 'Amit Yadav', password: 'TestPass@8', role: null },
+  { username: 'batsman_b4', name: 'Pradeep Joshi', password: 'TestPass@9', role: null },
+  { username: 'joker_player', name: 'Vikram Nair', password: 'TestPass@10', role: 'joker' }, // Joker, no team
 ];
 
 // ─── Viewer account (not in match) ──────────────────────────────────────────
@@ -149,9 +149,9 @@ async function main() {
 
   for (let i = 0; i < playerUsers.length; i++) {
     const pu = playerUsers[i];
-    const isJoker     = pu.role === 'joker';           // joker_player (index 9)
-    const isScorerB   = pu.role === 'scorer_b';        // scorer_b (index 5)
-    const teamId      = isJoker ? null : (i < 5 ? teamA.id : teamB.id);
+    const isJoker = pu.role === 'joker';           // joker_player (index 9)
+    const isScorerB = pu.role === 'scorer_b';        // scorer_b (index 5)
+    const teamId = isJoker ? null : (i < 5 ? teamA.id : teamB.id);
 
     const { data: player, error: pErr } = await supabase.from('players').insert({
       session_id: session.id,
@@ -206,9 +206,9 @@ async function main() {
 
   const creds = [
     { label: '1. MATCH OWNER (Team A)', player: playerUsers[0] },
-    { label: '2. TEAMMATE IN TEAM A',   player: playerUsers[1] },  // batsman_a2 / Rohan Mehta
-    { label: '3. SCORER FOR TEAM B',    player: playerUsers[5] },  // scorer_b / Rahul Verma
-    { label: '4. VIEWER (no team)',     player: { ...viewerUser, password: VIEWER.password, username: VIEWER.username } },
+    { label: '2. TEAMMATE IN TEAM A', player: playerUsers[1] },  // batsman_a2 / Rohan Mehta
+    { label: '3. SCORER FOR TEAM B', player: playerUsers[5] },  // scorer_b / Rahul Verma
+    { label: '4. VIEWER (no team)', player: { ...viewerUser, password: VIEWER.password, username: VIEWER.username } },
   ];
 
   for (const c of creds) {
@@ -231,9 +231,9 @@ async function main() {
   console.log('📊 TEAM BREAKDOWN');
   console.log('─────────────────────────────────────────');
   console.log('\nTEAM A (5 players) — Scored by: shree_116');
-  teamAPlayerUsers.forEach((p, i) => console.log(`  ${i+1}. ${p.name} (${p.username})`));
+  teamAPlayerUsers.forEach((p, i) => console.log(`  ${i + 1}. ${p.name} (${p.username})`));
   console.log('\nTEAM B (5 players) — Scored by: Rahul Verma (scorer_b)');
-  teamBPlayerUsers.slice(0,4).forEach((p, i) => console.log(`  ${i+1}. ${p.name} (${p.username})`));
+  teamBPlayerUsers.slice(0, 4).forEach((p, i) => console.log(`  ${i + 1}. ${p.name} (${p.username})`));
   console.log('\nJOKER');
   console.log(`  1. ${playerUsers[9].name} (${playerUsers[9].username})`);
   console.log('\nPLUS (manual join)');

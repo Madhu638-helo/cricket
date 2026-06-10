@@ -155,7 +155,33 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ stats, liveMatches, upcomingMatches });
+    // All-time team wins — group by team name (case-insensitive)
+    const [completedMatches, allTeams] = await Promise.all([
+      prisma.matches.findMany({
+        where: { status: 'result', winner_id: { not: null } },
+        select: { winner_id: true },
+      }),
+      prisma.teams.findMany({ select: { id: true, name: true } }),
+    ]);
+
+    const teamNameMap = new Map<string, string>(allTeams.map(t => [t.id, t.name]));
+    const winsByName = new Map<string, number>();
+    for (const m of completedMatches) {
+      if (!m.winner_id) continue;
+      const name = teamNameMap.get(m.winner_id);
+      if (!name) continue;
+      const key = name.trim().toLowerCase();
+      winsByName.set(key, (winsByName.get(key) ?? 0) + 1);
+    }
+    const champions = Array.from(winsByName.entries())
+      .map(([key, wins]) => {
+        const displayName = allTeams.find(t => t.name.trim().toLowerCase() === key)?.name ?? key;
+        return { name: displayName, wins };
+      })
+      .sort((a, b) => b.wins - a.wins || a.name.localeCompare(b.name))
+      .slice(0, 10);
+
+    return NextResponse.json({ stats, liveMatches, upcomingMatches, champions });
   } catch (error) {
     console.error('Error fetching dashboard data:', error);
     return NextResponse.json({ error: 'Failed to fetch dashboard data' }, { status: 500 });

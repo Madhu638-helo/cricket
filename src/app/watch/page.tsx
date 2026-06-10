@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import BottomNavigation from '@/components/nav/BottomTabBar';
 import { createClient } from '@/lib/supabase/client';
@@ -12,20 +12,13 @@ function abbr(name: string) {
 
 export default function WatchPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   const [liveMatches, setLiveMatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [codeInput, setCodeInput] = useState('');
-  const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    loadLive();
-    // Auto-refresh every 30 seconds
-    refreshRef.current = setInterval(loadLive, 30000);
-    return () => { if (refreshRef.current) clearInterval(refreshRef.current); };
-  }, []);
-
-  const loadLive = async () => {
+  const loadLive = useCallback(async () => {
     const { data: sessions } = await supabase
       .from('sessions')
       .select(`
@@ -45,7 +38,6 @@ export default function WatchPage() {
         const activeInnings = match?.innings?.find((i: any) => i.status === 'active');
         const completedInnings = match?.innings?.find((i: any) => i.status === 'complete');
 
-        // Find actual batting/bowling teams
         const battingTeamId = activeInnings?.team_id;
         const battingTeam = s.teams?.find((t: any) => t.id === battingTeamId);
         const bowlingTeam = s.teams?.find((t: any) => t.id !== battingTeamId);
@@ -54,7 +46,6 @@ export default function WatchPage() {
         const overs = `${Math.floor(balls / 6)}.${balls % 6}`;
         const crr = balls > 0 ? ((activeInnings?.total_runs ?? 0) / (balls / 6)).toFixed(2) : '0.00';
 
-        // 2nd innings info
         const target = activeInnings?.target ?? null;
         const need = target ? Math.max(0, target - (activeInnings?.total_runs ?? 0)) : null;
 
@@ -76,7 +67,19 @@ export default function WatchPage() {
       setLiveMatches(live);
     }
     setLoading(false);
-  };
+  }, [supabase]);
+
+  useEffect(() => {
+    loadLive();
+
+    // Realtime: reload whenever any match or innings changes
+    const channel = supabase.channel('watch:live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => loadLive())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'innings' }, () => loadLive())
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [loadLive, supabase]);
 
   const handleJoinByCode = () => {
     const trimmed = codeInput.trim().toUpperCase();

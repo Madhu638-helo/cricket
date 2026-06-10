@@ -298,6 +298,10 @@ model User {
   preferred_ground      String?
   date_of_birth         DateTime?              @db.Date
   avatar_url            String?
+  matches_played        Int                    @default(0)
+  matches_won           Int                    @default(0)
+  matches_lost          Int                    @default(0)
+  matches_tied          Int                    @default(0)
   audit_logs            audit_logs[]
   ball_overrides        ball_overrides[]
   batting_career_stats  batting_career_stats?

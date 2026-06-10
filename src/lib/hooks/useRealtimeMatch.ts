@@ -38,19 +38,25 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
   const sessionIdRef = useRef<string>('');
   const matchIdRef = useRef<string>('');
   const hasSubscribedRef = useRef(false);
+  // Stale-fetch guard: increment before each fetch, discard results if generation changed
+  const fetchGenRef = useRef(0);
 
   const fetchInitial = useCallback(async () => {
+    const gen = ++fetchGenRef.current;
+
     const { data: sess, error: se } = await supabase
       .from('sessions').select('*').eq('code', matchCode).single();
     if (se || !sess) { setLoading(false); setError('Session not found'); return; }
 
     sessionIdRef.current = sess.id;
-    setSession(sess);
 
     const { data: m } = await supabase
       .from('matches').select('*').eq('session_id', sess.id)
       .order('match_number', { ascending: false }).limit(1).single();
-    if (!m) { setSession(sess); setLoading(false); setError('No active match'); return; }
+    if (!m) {
+      if (gen !== fetchGenRef.current) return;
+      setSession(sess); setLoading(false); setError('No active match'); return;
+    }
 
     matchIdRef.current = m.id;
 
@@ -58,12 +64,16 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
     const inningsIds = (inn ?? []).map((i: Innings) => i.id);
     const [{ data: b }, { data: p }, { data: t }] = await Promise.all([
       inningsIds.length
-        ? supabase.from('balls').select('*').in('innings_id', inningsIds).order('created_at', { ascending: true })
+        ? supabase.from('balls').select('*').in('innings_id', inningsIds).order('delivery_number', { ascending: true })
         : { data: [] as Ball[] },
       supabase.from('players').select('*').eq('session_id', sess.id),
       supabase.from('teams').select('*').eq('session_id', sess.id),
     ]);
 
+    // Discard if a newer fetchInitial call completed while we were awaiting
+    if (gen !== fetchGenRef.current) return;
+
+    setSession(sess);
     setMatch(m);
     setInnings(inn ?? []);
     setBalls(b ?? []);
@@ -74,9 +84,8 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
   }, [matchCode]);
 
   useEffect(() => {
-    fetchInitial();
-
-    // Use a stable channel name (no Date.now()) to avoid leaking channels on re-renders.
+    // fetchInitial is called in the SUBSCRIBED callback below — no need to call it here too.
+    // Calling it here AND on SUBSCRIBED causes two parallel fetches on every mount.
     const channel = supabase.channel(`match:${matchCode}`)
       // Per-ball score broadcast from scorer — updates innings totals + appends ball for viewers
       .on('broadcast', { event: 'score_update' }, (payload: any) => {
@@ -115,10 +124,16 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
           setPendingSpeeds(prev => [...prev, kmh].slice(-10));
         }
       })
-      // Match status changes (pause, result, etc.) — update match in-place
+      // Match status changes — update match in-place.
+      // On innings_2 transition, full refetch to load the new innings row (may have been missed if
+      // the innings INSERT arrived before sessionIdRef was populated on the first subscribe).
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' },
         (payload: any) => {
           if (payload.new?.session_id !== sessionIdRef.current && sessionIdRef.current) return;
+          if (payload.new?.status === 'innings_2') {
+            fetchInitial();
+            return;
+          }
           setMatch(prev => prev?.id === payload.new?.id ? { ...prev, ...payload.new } as Match : prev);
         })
       // Match INSERT (new match started) — full refetch
@@ -181,11 +196,16 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
             setInnings(prev => prev.map(i =>
               i.id === innings_update.id ? { ...i, ...innings_update } as Innings : i
             ));
-            // Gap detection: if DB says more legal balls than we have, a batch was lost
+            // Gap detection: compare legal balls in DB vs legal balls on client
+            // (total_balls only counts legal deliveries, so we must count the same way)
             setBalls(prev => {
-              const ourBalls = prev.filter(b => b.innings_id === innings_update.id).length;
-              if (innings_update.total_balls > ourBalls) {
-                setTimeout(() => fetchInitial(), 50);
+              const legalOurs = prev.filter(
+                b => b.innings_id === innings_update.id &&
+                     b.extra_type !== 'wide' && b.extra_type !== 'noball'
+              ).length;
+              if (innings_update.total_balls > legalOurs) {
+                // Schedule outside the updater to avoid StrictMode double-invocation
+                Promise.resolve().then(() => fetchInitial());
               }
               return prev;
             });
@@ -212,7 +232,12 @@ export function useRealtimeMatch(matchCode: string): RealtimeMatchData {
       });
 
     channelRef.current = channel;
-    return () => { supabase.removeChannel(channel); channelRef.current = null; hasSubscribedRef.current = false; };
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+      hasSubscribedRef.current = false;
+      fetchGenRef.current++; // invalidate any in-flight fetchInitial
+    };
   }, [matchCode, fetchInitial]);
 
   const sendScoreUpdate = useCallback((inningsId: string, runs: number, wickets: number, totalBalls: number, ball?: any) => {
