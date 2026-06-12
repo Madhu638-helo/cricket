@@ -111,7 +111,7 @@ export default function MatchPage({ params }: PageProps) {
       const isOwner = session?.owner_id === user.id;
       const me = players.find(p => p.user_id === user.id);
       const activeInnings = innings.find(i => i.status === 'active');
-      const isBattingTeamScorer = !!(me?.is_scorer && activeInnings && me?.team_id === activeInnings.team_id);
+      const isBattingTeamScorer = !!(me?.is_scorer && activeInnings);
       const isOwnerScorer = !!(me?.is_scorer && isOwner);
       setIsScorer(isBattingTeamScorer || isOwnerScorer);
     };
@@ -580,7 +580,7 @@ export default function MatchPage({ params }: PageProps) {
   // During innings_break, owner must stay in scoring view to access InningsBreakSheet.
   // Without this, isScorer→false (no active innings) would flip owner to SpectatorView
   // and InningsBreakSheet would never be reachable — match stuck permanently.
-  const ownerDuringBreak = isOwner && match.status === 'innings_break';
+  const ownerDuringBreak = (isOwner || me?.is_scorer) && match.status === 'innings_break';
 
   if (!isScorer && !ownerDuringBreak) {
     return (

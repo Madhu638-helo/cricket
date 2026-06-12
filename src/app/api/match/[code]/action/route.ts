@@ -367,32 +367,6 @@ export async function POST(
         });
       }
 
-      // Auto-flip scorer: Team A's scorer → Team B's scorer
-      // Find the current scorer (Team A) and a scorer-candidate on Team B.
-      // Scorer candidate = player on battingTeamId with is_scorer=true already (pre-assigned),
-      // OR fall back to the captain of that team, OR first player on that team.
-      const { data: allPlayers } = await supabase
-        .from('players')
-        .select('id, team_id, is_scorer, is_captain')
-        .eq('session_id', session.id);
-
-      if (allPlayers && allPlayers.length > 0) {
-        const currentScorer = allPlayers.find((p: any) => p.is_scorer);
-        // Find the best candidate on the NEW batting team:
-        // priority: already-flagged scorer on that team → captain → first player on team
-        const teamBPlayers = allPlayers.filter((p: any) => p.team_id === battingTeamId);
-        const newScorer =
-          teamBPlayers.find((p: any) => p.is_scorer && p.id !== currentScorer?.id) ??
-          teamBPlayers.find((p: any) => p.is_captain) ??
-          teamBPlayers[0];
-
-        if (currentScorer && newScorer && currentScorer.id !== newScorer.id) {
-          await Promise.all([
-            supabase.from('players').update({ is_scorer: false }).eq('id', currentScorer.id),
-            supabase.from('players').update({ is_scorer: true }).eq('id', newScorer.id),
-          ]);
-        }
-      }
 
       return NextResponse.json({ success: true, innings2Id: innings2?.id });
     }

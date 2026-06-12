@@ -43,7 +43,7 @@ export async function POST(
 
   // Verify scorer (must be in batting team and have is_scorer = true, OR be the owner with is_scorer)
   const isOwner = playerMe?.user_id === session.owner_id;
-  const isBattingTeamScorer = playerMe?.is_scorer && playerMe?.team_id === innings.team_id;
+  const isBattingTeamScorer = playerMe?.is_scorer;
   const isOwnerScorer = playerMe?.is_scorer && isOwner;
 
   if (!isBattingTeamScorer && !isOwnerScorer) {

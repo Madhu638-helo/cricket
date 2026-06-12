@@ -36,7 +36,7 @@ async function main() {
       username: 'seed_owner', name: 'Arjun Singh', password: pw,
       batting_style: 'right_hand', bowling_style: 'right_arm_medium',
       player_role: 'allrounder', batting_position: 'top_order',
-      jersey_number: 7, bio: 'Test owner account', preferred_ground: 'Surat Ground',
+      bio: 'Test owner account', preferred_ground: 'Surat Ground',
     },
   });
 
@@ -46,7 +46,7 @@ async function main() {
     create: {
       username: 'seed_scorer', name: 'Rahul Mehta', password: pw,
       batting_style: 'right_hand', bowling_style: 'right_arm_off_spin',
-      player_role: 'batsman', batting_position: 'opener', jersey_number: 17,
+      player_role: 'batsman', batting_position: 'opener',
     },
   });
 
