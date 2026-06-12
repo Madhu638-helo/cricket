@@ -580,7 +580,7 @@ export default function MatchPage({ params }: PageProps) {
   // During innings_break, owner must stay in scoring view to access InningsBreakSheet.
   // Without this, isScorer→false (no active innings) would flip owner to SpectatorView
   // and InningsBreakSheet would never be reachable — match stuck permanently.
-  const ownerDuringBreak = (isOwner || me?.is_scorer) && match.status === 'innings_break';
+  const ownerDuringBreak = (isOwner || isScorer) && match.status === 'innings_break';
 
   if (!isScorer && !ownerDuringBreak) {
     return (
