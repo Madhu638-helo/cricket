@@ -16,7 +16,7 @@ export async function GET() {
     { data: field },
     { data: recentPlayers },
   ] = await Promise.all([
-    supabase.from('users').select('id,name,username,batting_style,bowling_style,player_role,batting_position,jersey_number,bio,preferred_ground,date_of_birth,created_at').eq('id', session.id).single(),
+    supabase.from('users').select('id,name,username,mvps,batting_style,bowling_style,player_role,batting_position,jersey_number,bio,preferred_ground,date_of_birth,created_at').eq('id', session.id).single(),
     supabase.from('batting_career_stats').select('*').eq('user_id', session.id).single(),
     supabase.from('bowling_career_stats').select('*').eq('user_id', session.id).single(),
     supabase.from('fielding_career_stats').select('*').eq('user_id', session.id).single(),

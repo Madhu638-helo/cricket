@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
 import BottomNavigation from '@/components/nav/BottomTabBar';
+import html2canvas from 'html2canvas';
 
 const BATTING_STYLES = [
   { value: 'right_hand', label: 'Right-handed Batsman' },
@@ -56,6 +57,10 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<'batting' | 'bowling' | 'fielding'>('batting');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [exportData, setExportData] = useState<any>(null);
 
   useEffect(() => {
     fetch('/api/user/profile')
@@ -82,6 +87,35 @@ export default function ProfilePage() {
   const signOut = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
+  };
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const res = await fetch('/api/user/export');
+      const edata = await res.json();
+      if(edata.error) {
+        setExporting(false);
+        return;
+      }
+      setExportData(edata);
+      
+      setTimeout(async () => {
+        if(exportRef.current) {
+          const canvas = await html2canvas(exportRef.current, { backgroundColor: '#111', scale: 2 });
+          const link = document.createElement('a');
+          link.download = `TurfTitans-${edata.user.name.replace(/\s+/g, '')}-Stats.png`;
+          link.href = canvas.toDataURL();
+          link.click();
+        }
+        setExporting(false);
+        setExportData(null);
+      }, 500); 
+    } catch(err) {
+      console.error(err);
+      setExporting(false);
+      setExportData(null);
+    }
   };
 
   if (!data) return (
@@ -124,21 +158,35 @@ export default function ProfilePage() {
             color: 'var(--txt)',
           }}>Profile</div>
 
-          {/* Three-dot menu */}
-          <div ref={menuRef} style={{ position: 'relative' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            {/* Export Image Button */}
             <button
-              onClick={() => setMenuOpen(o => !o)}
+              onClick={handleExport}
+              disabled={exporting}
               className="icon-btn"
-              aria-label="Profile menu"
+              aria-label="Export stats"
+              style={{ opacity: exporting ? 0.5 : 1 }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line>
               </svg>
             </button>
 
-            {menuOpen && (
+            {/* Three-dot menu */}
+            <div ref={menuRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setMenuOpen(o => !o)}
+                className="icon-btn"
+                aria-label="Profile menu"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="12" cy="19" r="2" />
+                </svg>
+              </button>
+
+              {menuOpen && (
               <div style={{
                 position: 'absolute', top: '100%', right: 0, marginTop: '4px',
                 background: 'var(--s2)', border: '1px solid var(--border2)', borderRadius: '12px',
@@ -167,6 +215,7 @@ export default function ProfilePage() {
                 </button>
               </div>
             )}
+            </div>
           </div>
         </div>
 
@@ -178,6 +227,19 @@ export default function ProfilePage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '22px', fontWeight: 800, marginBottom: '2px', color: 'var(--txt)' }}>{user?.name}</div>
             <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '6px' }}>@{user?.username}</div>
+            
+            {/* MVP Star Rating */}
+            <div style={{ display: 'flex', gap: '2px', marginBottom: '10px' }} aria-label={`${Math.min(5, user?.mvps || 0)} Star Rating`}>
+              {[1, 2, 3, 4, 5].map(star => {
+                const earned = Math.min(5, user?.mvps || 0);
+                return (
+                  <svg key={star} width="16" height="16" viewBox="0 0 24 24" fill={star <= earned ? "#fbbf24" : "var(--s3)"} stroke={star <= earned ? "#fbbf24" : "var(--border)"} strokeWidth="1">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </svg>
+                );
+              })}
+            </div>
+
             {/* Role pills — var-based for light/dark */}
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
               <span style={{
@@ -544,6 +606,127 @@ export default function ProfilePage() {
       </div>
 
       <BottomNavigation />
+
+      {/* Hidden Export Template */}
+      {exportData && (
+        <div style={{ position: 'absolute', top: '-9999px', left: '-9999px', zIndex: -1 }}>
+          <div ref={exportRef} style={{
+            width: '640px', background: '#0a0a0a', padding: '48px', borderRadius: '32px',
+            color: '#fff', fontFamily: 'Barlow, sans-serif',
+            border: '2px solid rgba(249,115,22, 0.4)',
+            boxShadow: 'inset 0 0 80px rgba(249,115,22, 0.05)',
+            position: 'relative', overflow: 'hidden'
+          }}>
+            {/* Background design elements */}
+            <div style={{ position: 'absolute', top: '-50%', left: '-50%', width: '200%', height: '200%', background: 'radial-gradient(circle, rgba(249,115,22,0.1) 0%, transparent 60%)', zIndex: 0, pointerEvents: 'none' }} />
+            
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                  <Avatar name={exportData.user.name} size={84} />
+                  <div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#f97316', letterSpacing: '2px', textTransform: 'uppercase' }}>Player Stats</div>
+                    <div style={{ fontSize: '56px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', lineHeight: 1, marginTop: '4px', textShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                      {exportData.user.name}
+                    </div>
+                    <div style={{ fontSize: '18px', color: '#888', marginTop: '6px', fontWeight: 600 }}>@{exportData.user.username}</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', background: 'rgba(255,214,10,0.1)', padding: '16px 24px', borderRadius: '20px', border: '1px solid rgba(255,214,10,0.2)' }}>
+                  <div style={{ fontSize: '64px', fontWeight: 900, fontFamily: 'Barlow Condensed, sans-serif', color: '#ffd60a', lineHeight: 1 }}>{exportData.user.mvps}</div>
+                  <div style={{ fontSize: '14px', color: '#ffd60a', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1.5px', marginTop: '4px' }}>Career MVPs</div>
+                </div>
+              </div>
+
+              {/* Date Indicator */}
+              {exportData.daily.date && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '30px' }}>
+                  <span style={{ background: 'rgba(255,255,255,0.08)', padding: '6px 16px', borderRadius: '20px', fontSize: '14px', color: '#aaa', fontWeight: 700, letterSpacing: '1px' }}>
+                    LAST MATCH DAY: {new Date(exportData.daily.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+              )}
+
+              {/* Content grid: Day vs Overall */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                {/* Batting Col */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '24px', padding: '24px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '28px', fontWeight: 900, color: '#fff', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '4px', height: '24px', background: '#30d158', borderRadius: '4px' }} />
+                    Batting
+                  </div>
+                  
+                  <div style={{ background: 'rgba(0,0,0,0.4)', padding: '20px', borderRadius: '16px', marginBottom: '16px', border: '1px solid rgba(48,209,88,0.2)' }}>
+                    <div style={{ fontSize: '14px', color: '#30d158', fontWeight: 800, textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '1px' }}>That Day ({exportData.daily.matches} Matches)</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#aaa', fontWeight: 600 }}>Runs</span>
+                      <span style={{ fontSize: '32px', fontWeight: 900, color: '#fff', fontFamily: 'Barlow Condensed, sans-serif' }}>{exportData.daily.batting.runs}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#aaa', fontWeight: 600 }}>Strike Rate</span>
+                      <span style={{ fontSize: '28px', fontWeight: 900, color: '#fff', fontFamily: 'Barlow Condensed, sans-serif' }}>{exportData.daily.batting.strikeRate.toFixed(1)}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '14px', color: '#888', fontWeight: 800, textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '1px' }}>Career</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#888', fontWeight: 600 }}>Runs</span>
+                      <span style={{ fontSize: '28px', fontWeight: 900, color: '#aaa', fontFamily: 'Barlow Condensed, sans-serif' }}>{exportData.career.batting?.runs || 0}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#888', fontWeight: 600 }}>Strike Rate</span>
+                      <span style={{ fontSize: '24px', fontWeight: 900, color: '#aaa', fontFamily: 'Barlow Condensed, sans-serif' }}>{Number(exportData.career.batting?.strike_rate || 0).toFixed(1)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bowling Col */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '24px', padding: '24px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '28px', fontWeight: 900, color: '#fff', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '4px', height: '24px', background: '#f87171', borderRadius: '4px' }} />
+                    Bowling
+                  </div>
+                  
+                  <div style={{ background: 'rgba(0,0,0,0.4)', padding: '20px', borderRadius: '16px', marginBottom: '16px', border: '1px solid rgba(248,113,113,0.2)' }}>
+                    <div style={{ fontSize: '14px', color: '#f87171', fontWeight: 800, textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '1px' }}>That Day</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#aaa', fontWeight: 600 }}>Wickets</span>
+                      <span style={{ fontSize: '32px', fontWeight: 900, color: '#fff', fontFamily: 'Barlow Condensed, sans-serif' }}>{exportData.daily.bowling.wickets}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#aaa', fontWeight: 600 }}>Economy</span>
+                      <span style={{ fontSize: '28px', fontWeight: 900, color: '#fff', fontFamily: 'Barlow Condensed, sans-serif' }}>{exportData.daily.bowling.economy.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '14px', color: '#888', fontWeight: 800, textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '1px' }}>Career</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#888', fontWeight: 600 }}>Wickets</span>
+                      <span style={{ fontSize: '28px', fontWeight: 900, color: '#aaa', fontFamily: 'Barlow Condensed, sans-serif' }}>{exportData.career.bowling?.wickets || 0}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '18px', color: '#888', fontWeight: 600 }}>Economy</span>
+                      <span style={{ fontSize: '24px', fontWeight: 900, color: '#aaa', fontFamily: 'Barlow Condensed, sans-serif' }}>{Number(exportData.career.bowling?.economy || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Footer */}
+              <div style={{ textAlign: 'center', marginTop: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                <div style={{ height: '1px', width: '40px', background: '#f97316' }} />
+                <div style={{ fontSize: '16px', color: '#f97316', fontWeight: 900, letterSpacing: '4px', textTransform: 'uppercase', fontFamily: 'Barlow Condensed, sans-serif' }}>
+                  Turf Titans
+                </div>
+                <div style={{ height: '1px', width: '40px', background: '#f97316' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

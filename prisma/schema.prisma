@@ -171,6 +171,8 @@ model matches {
   teams_matches_team2_idToteams       teams?    @relation("matches_team2_idToteams", fields: [team2_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   teams_matches_toss_winner_idToteams teams?    @relation("matches_toss_winner_idToteams", fields: [toss_winner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   teams_matches_winner_idToteams      teams?    @relation("matches_winner_idToteams", fields: [winner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  mvp_id                              String?   @db.Uuid
+  user_matches_mvp_idTouser           User?     @relation("matches_mvp_idTouser", fields: [mvp_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model notifications {
@@ -302,6 +304,7 @@ model User {
   matches_won           Int                    @default(0)
   matches_lost          Int                    @default(0)
   matches_tied          Int                    @default(0)
+  mvps                  Int                    @default(0)
   audit_logs            audit_logs[]
   ball_overrides        ball_overrides[]
   batting_career_stats  batting_career_stats?
@@ -312,6 +315,7 @@ model User {
   players               players[]
   rankings              rankings[]
   sessions              sessions[]
+  matches_mvp           matches[]              @relation("matches_mvp_idTouser")
 
   @@index([id])
   @@map("users")

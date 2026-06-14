@@ -170,8 +170,8 @@ export async function POST(
           const fieldingMap = new Map(allFielding.map((r: any) => [r.user_id, r]));
 
           // Run all player stat updates in parallel — each player is independent
-          await Promise.all(matchPlayers.map(async (p: any) => {
-            if (!p.user_id) return;
+          const mvpScores = await Promise.all(matchPlayers.map(async (p: any) => {
+            if (!p.user_id) return null;
             const pBalls = matchBalls.filter((b: any) => b.batsman_id === p.id);
             const bowledBalls = matchBalls.filter((b: any) => b.bowler_id === p.id);
             const fielderWickets = matchBalls.filter((b: any) => b.is_wicket && b.fielder_id === p.id);
@@ -287,11 +287,12 @@ export async function POST(
               }
             }
 
+            const catches = fielderWickets.filter((b: any) => b.wicket_type === 'caught').length;
+            const runOuts = fielderWickets.filter((b: any) => b.wicket_type === 'runout').length;
+            const stumpings = fielderWickets.filter((b: any) => b.wicket_type === 'stumped').length;
+            const drops = fielderDrops.length;
+
             if (fielderWickets.length > 0 || fielderDrops.length > 0) {
-              const catches = fielderWickets.filter((b: any) => b.wicket_type === 'caught').length;
-              const runOuts = fielderWickets.filter((b: any) => b.wicket_type === 'runout').length;
-              const stumpings = fielderWickets.filter((b: any) => b.wicket_type === 'stumped').length;
-              const drops = fielderDrops.length;
               const existing = fieldingMap.get(p.user_id);
               if (existing) {
                 await supabase.from('fielding_career_stats').update({
@@ -305,7 +306,26 @@ export async function POST(
                 await supabase.from('fielding_career_stats').insert({ user_id: p.user_id, catches, dropped_catches: drops, run_outs: runOuts, stumpings });
               }
             }
+            const strikeRate = ballsFaced > 0 ? (runs / ballsFaced) * 100 : 0;
+            const economy = legalBowled > 0 ? runsGiven / (legalBowled / 6) : 0;
+            const batPoints = (runs * 0.4) + (strikeRate * 0.2);
+            const bowlPoints = (wicketsTaken * 10) + (economy > 0 && legalBowled > 0 ? (1 / economy) * 10 : 0);
+            const fieldPoints = (catches * 5) + (runOuts * 5) + (stumpings * 5);
+            return { userId: p.user_id, points: batPoints + bowlPoints + fieldPoints };
           }));
+
+          const validScores = mvpScores.filter(Boolean) as { userId: string, points: number }[];
+          if (validScores.length > 0) {
+            validScores.sort((a, b) => b.points - a.points);
+            const mvpUser = validScores[0];
+            if (mvpUser && mvpUser.points > 0) {
+              await supabase.from('matches').update({ mvp_id: mvpUser.userId }).eq('id', matchId);
+              const { data: mvpU } = await supabase.from('users').select('mvps').eq('id', mvpUser.userId).single();
+              if (mvpU) {
+                await supabase.from('users').update({ mvps: (mvpU.mvps || 0) + 1 }).eq('id', mvpUser.userId);
+              }
+            }
+          }
 
           // Update Win/Loss/Tie records in the users table
           if (userIds.length > 0) {
