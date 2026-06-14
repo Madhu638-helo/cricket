@@ -50,3 +50,16 @@ AGENTS.md
 CLAUDE.md
 
 .claude/
+
+# Temp and test scripts
+scripts/scratch*.ts
+scripts/test_*.ts
+scripts/check_*.ts
+scripts/create_*.ts
+scripts/delete_*.ts
+scripts/temp_*.ts
+scripts/setup-test-match.mjs
+scripts/simulate-match.ts
+scripts/add_test_players.ts
+scripts/query*.ts
+scripts/remove_*.ts

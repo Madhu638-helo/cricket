@@ -602,11 +602,124 @@ export async function POST(
         await supabase.from('score_tickers').upsert({
           session_id: session.id,
           data: {
-            // Emitting empty new_balls forces the client to rely on its local state truncation if we had one
-            // Wait, we need to tell the client to refetch balls or we can just send a flag
             reload_balls: true,
             innings_update: { id: inningsId, total_runs: totalRuns, total_balls: totalBalls, total_extras: totalExtras, total_wickets: totalWickets },
             match_update: { id: matchId, status: match.status }
+          }
+        }, { onConflict: 'session_id' });
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    case 'undo_last_ball': {
+      const { inningsId, matchId } = data;
+      const { data: innings } = await supabase.from('innings').select('*').eq('id', inningsId).single();
+      if (!innings || innings.status !== 'active') {
+        return NextResponse.json({ error: 'Cannot undo in inactive innings' }, { status: 400 });
+      }
+
+      // Find the highest delivery number
+      const { data: maxBallQuery } = await supabase.from('balls')
+        .select('delivery_number')
+        .eq('innings_id', inningsId)
+        .order('delivery_number', { ascending: false })
+        .limit(1)
+        .single();
+        
+      if (!maxBallQuery) {
+        return NextResponse.json({ error: 'No balls to undo' }, { status: 400 });
+      }
+      
+      const lastDeliveryNumber = maxBallQuery.delivery_number;
+      
+      // Delete the last single ball
+      await supabase.from('balls').delete().eq('innings_id', inningsId).eq('delivery_number', lastDeliveryNumber);
+      
+      // Fetch all remaining balls to rebuild innings stats and current partnership
+      const { data: remainingBalls } = await supabase.from('balls')
+        .select('*')
+        .eq('innings_id', inningsId)
+        .order('delivery_number', { ascending: true });
+        
+      let totalRuns = 0;
+      let totalBalls = 0;
+      let totalWickets = 0;
+      let totalExtras = 0;
+      
+      let pRuns = 0;
+      let pBalls = 0;
+      let pBat1 = '';
+      let pBat2: string | null = null;
+      
+      if (remainingBalls && remainingBalls.length > 0) {
+        for (const b of remainingBalls) {
+          totalRuns += b.runs_off_bat + b.extras;
+          totalExtras += b.extras;
+          if (b.extra_type !== 'wide' && b.extra_type !== 'noball') totalBalls++;
+          if (b.is_wicket) totalWickets++;
+        }
+        
+        // Walk backwards to find where the current partnership started
+        let partnershipStartIdx = 0; // default: no wickets → whole innings is one partnership
+        for (let i = remainingBalls.length - 1; i >= 0; i--) {
+          if (remainingBalls[i].is_wicket) {
+            partnershipStartIdx = i + 1;
+            break;
+          }
+        }
+        
+        // Walk FORWARD from the partnership start to accumulate correct stats
+        for (let i = partnershipStartIdx; i < remainingBalls.length; i++) {
+          const b = remainingBalls[i];
+          pRuns += b.runs_off_bat + b.extras;
+          if (b.extra_type !== 'wide' && b.extra_type !== 'noball') pBalls++;
+        }
+        
+        // Identify the two batsmen from the last ball of the innings.
+        const lastBall = remainingBalls[remainingBalls.length - 1];
+        if (lastBall.is_wicket) {
+          pBat1 = lastBall.non_striker_id && lastBall.non_striker_id !== 'single'
+            ? lastBall.non_striker_id
+            : lastBall.batsman_id;
+          pBat2 = null;
+        } else {
+          pBat1 = lastBall.batsman_id;
+          pBat2 = lastBall.non_striker_id === 'single' ? null : (lastBall.non_striker_id ?? null);
+        }
+      }
+
+      // Update Innings
+      await supabase.from('innings').update({
+        total_runs: totalRuns,
+        total_balls: totalBalls,
+        total_extras: totalExtras,
+        total_wickets: totalWickets,
+      }).eq('id', inningsId);
+      
+      // Delete all OPEN partnerships and recreate the correct one
+      await supabase.from('partnerships').delete().eq('innings_id', inningsId).is('wicket_number', null);
+      
+      if (remainingBalls && remainingBalls.length > 0) {
+        await supabase.from('partnerships').insert({
+          innings_id: inningsId,
+          batsman1_id: pBat1,
+          batsman2_id: pBat2,
+          runs: pRuns,
+          balls: pBalls,
+          wicket_number: null
+        });
+      }
+
+      // Broadcast the state update via score_tickers
+      const { data: matchAfterUndo } = await supabase.from('matches').select('id,status').eq('id', matchId).single();
+      if (matchAfterUndo) {
+        await supabase.from('score_tickers').upsert({
+          session_id: session.id,
+          data: {
+            reload_balls: true,
+            innings_update: { id: inningsId, total_runs: totalRuns, total_balls: totalBalls, total_extras: totalExtras, total_wickets: totalWickets },
+            match_update: { id: matchId, status: matchAfterUndo.status }
           }
         }, { onConflict: 'session_id' });
       }
