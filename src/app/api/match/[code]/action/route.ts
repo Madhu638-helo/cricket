@@ -208,60 +208,66 @@ export async function POST(
               }
             });
 
-            if (runs > 0 || ballsFaced > 0) {
+            const isPlayingXI = p.team_id === match.team1_id || p.team_id === match.team2_id;
+
+            if (isPlayingXI || runs > 0 || ballsFaced > 0) {
               const existing = battingMap.get(p.user_id);
+              const didBat = runs > 0 || ballsFaced > 0 || isOut;
+              
               if (existing) {
                 const newRuns = existing.runs + runs;
                 const newBalls = existing.balls_faced + ballsFaced;
-                const newInnings = existing.innings + 1;
-                const newNotOuts = existing.not_outs + (isOut ? 0 : 1);
+                const newInnings = existing.innings + (didBat ? 1 : 0);
+                const newNotOuts = existing.not_outs + (didBat ? (isOut ? 0 : 1) : 0);
                 const outs = newInnings - newNotOuts;
                 await supabase.from('batting_career_stats').update({
+                  matches: existing.matches + 1,
                   runs: newRuns, balls_faced: newBalls, innings: newInnings,
                   fours: existing.fours + fours, sixes: existing.sixes + sixes,
                   fifties: existing.fifties + (runs >= 50 && runs < 100 ? 1 : 0),
                   hundreds: existing.hundreds + (runs >= 100 ? 1 : 0),
                   highest_score: Math.max(existing.highest_score, runs),
                   not_outs: newNotOuts,
-                  matches: existing.matches + 1,
                   average: outs > 0 ? Math.round((newRuns / outs) * 100) / 100 : newRuns,
                   strike_rate: newBalls > 0 ? Math.round((newRuns / newBalls) * 10000) / 100 : 0,
                   updated_at: new Date().toISOString(),
                 }).eq('user_id', p.user_id);
               } else {
+                const initNotOut = didBat ? (isOut ? 0 : 1) : 0;
                 const { error: insErr } = await supabase.from('batting_career_stats').insert({
-                  user_id: p.user_id, matches: 1, innings: 1, runs, balls_faced: ballsFaced,
+                  user_id: p.user_id, matches: 1, 
+                  innings: didBat ? 1 : 0, 
+                  runs, balls_faced: ballsFaced,
                   fours, sixes,
                   fifties: runs >= 50 && runs < 100 ? 1 : 0,
                   hundreds: runs >= 100 ? 1 : 0,
                   highest_score: runs,
-                  not_outs: isOut ? 0 : 1,
-                  average: isOut ? runs : 0,
+                  not_outs: initNotOut,
+                  average: runs,
                   strike_rate: ballsFaced > 0 ? Math.round((runs / ballsFaced) * 10000) / 100 : 0,
                 });
                 if (insErr) console.error('[CAREER STATS] batting insert error:', insErr);
               }
             }
 
-            if (legalBowled > 0) {
+            if (isPlayingXI || legalBowled > 0) {
               const existing = bowlingMap.get(p.user_id);
-              // Convert cricket overs format to total balls, add, convert back — avoids decimal math bug
-              const existingBalls = existing
-                ? Math.floor(Number(existing.overs_bowled)) * 6 + Math.round((Number(existing.overs_bowled) % 1) * 10)
-                : 0;
-              const totalBalls = existingBalls + legalBowled;
-              const newOvers = parseFloat(`${Math.floor(totalBalls / 6)}.${totalBalls % 6}`);
-              const newRuns = (existing?.runs_conceded ?? 0) + runsGiven;
-              const newWkts = (existing?.wickets ?? 0) + wicketsTaken;
-              const rawBestWkts = parseInt(existing?.best_figures?.split('/')[0] ?? '0', 10);
-              const existingBestWkts = isNaN(rawBestWkts) ? 0 : rawBestWkts;
-              const rawBestRuns = parseInt(existing?.best_figures?.split('/')[1] ?? '9999', 10);
-              const existingBestRuns = isNaN(rawBestRuns) ? 9999 : rawBestRuns;
-              const isBetterFigure = wicketsTaken > existingBestWkts ||
-                (wicketsTaken === existingBestWkts && runsGiven < existingBestRuns);
-              const bestFig = wicketsTaken > 0 && isBetterFigure ? `${wicketsTaken}/${runsGiven}` : (existing?.best_figures ?? '-');
+              const didBowl = legalBowled > 0;
 
               if (existing) {
+                const existingBalls = Math.floor(Number(existing.overs_bowled)) * 6 + Math.round((Number(existing.overs_bowled) % 1) * 10);
+                const totalBalls = existingBalls + legalBowled;
+                const newOvers = parseFloat(`${Math.floor(totalBalls / 6)}.${totalBalls % 6}`);
+                const newRuns = (existing.runs_conceded ?? 0) + runsGiven;
+                const newWkts = (existing.wickets ?? 0) + wicketsTaken;
+                
+                const rawBestWkts = parseInt(existing.best_figures?.split('/')[0] ?? '0', 10);
+                const existingBestWkts = isNaN(rawBestWkts) ? 0 : rawBestWkts;
+                const rawBestRuns = parseInt(existing.best_figures?.split('/')[1] ?? '9999', 10);
+                const existingBestRuns = isNaN(rawBestRuns) ? 9999 : rawBestRuns;
+                const isBetterFigure = wicketsTaken > existingBestWkts || (wicketsTaken === existingBestWkts && runsGiven < existingBestRuns);
+                const bestFig = (wicketsTaken > 0 && isBetterFigure) ? `${wicketsTaken}/${runsGiven}` : (existing.best_figures ?? '-');
+
                 await supabase.from('bowling_career_stats').update({
                   matches: existing.matches + 1,
                   overs_bowled: newOvers,
@@ -275,8 +281,10 @@ export async function POST(
                   updated_at: new Date().toISOString(),
                 }).eq('user_id', p.user_id);
               } else {
+                const newOvers = parseFloat(`${Math.floor(legalBowled / 6)}.${legalBowled % 6}`);
                 await supabase.from('bowling_career_stats').insert({
-                  user_id: p.user_id, matches: 1, overs_bowled: newOvers,
+                  user_id: p.user_id, matches: 1, 
+                  overs_bowled: newOvers,
                   runs_conceded: runsGiven, wickets: wicketsTaken,
                   maidens: maidensThisMatch,
                   economy: legalBowled > 0 ? Math.round((runsGiven / (legalBowled / 6)) * 100) / 100 : 0,

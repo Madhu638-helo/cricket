@@ -1,29 +1,29 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '../src/generated/prisma'
 
 const prisma = new PrismaClient()
 
 async function main() {
-  const players = await prisma.players.findMany({
+  const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
+
+  const recentMatches = await prisma.matches.findMany({
     where: {
-      name: {
-        contains: 'Brendon',
-        mode: 'insensitive'
+      created_at: {
+        gte: fiveHoursAgo
       }
+    },
+    include: {
+      teams_matches_team1_idToteams: true,
+      teams_matches_team2_idToteams: true,
     }
-  })
-  
-  console.log("Found players:", players)
-  
-  if (players.length > 0) {
-    const p = players[0];
-    const res = await prisma.players.update({
-      where: { id: p.id },
-      data: { name: 'Shamith' }
-    });
-    console.log("Updated:", res);
-  } else {
-    console.log("No player found");
-  }
+  });
+
+  console.log(`Found ${recentMatches.length} matches in the last 5 hours.`);
+  recentMatches.forEach(m => {
+    console.log(`- Match ID: ${m.id}`);
+    console.log(`  Teams: ${m.teams_matches_team1_idToteams?.name} vs ${m.teams_matches_team2_idToteams?.name}`);
+    console.log(`  Status: ${m.status}, Result: ${m.result}`);
+    console.log(`  Created At: ${m.created_at}`);
+  });
 }
 
 main()

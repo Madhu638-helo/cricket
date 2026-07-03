@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getUserSession } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 type Category = 'batting' | 'bowling' | 'allrounder';
 
 export async function GET(request: Request) {
