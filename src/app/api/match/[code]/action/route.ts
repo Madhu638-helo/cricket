@@ -19,6 +19,54 @@ export async function POST(
 
   switch (action) {
 
+    case 'move_to_toss': {
+      const { matchId } = data;
+      await supabase.from('matches').update({ status: 'toss' }).eq('id', matchId);
+      return NextResponse.json({ success: true });
+    }
+
+    case 'add_player': {
+      const { userId, name, teamId, isJoker } = data;
+      await supabase.from('players').insert({
+        session_id: session.id,
+        user_id: userId,
+        name,
+        team_id: teamId,
+        is_joker: isJoker || false,
+        role: 'PLAYER',
+        player_status: 'PLAYING',
+        approval_status: 'approved'
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    case 'update_player_role': {
+      const { playerId, isCaptain, isJoker, teamId, isScorer } = data;
+      const update: any = {};
+      if (isCaptain !== undefined) update.is_captain = isCaptain;
+      if (isJoker !== undefined) update.is_joker = isJoker;
+      if (teamId !== undefined) update.team_id = teamId;
+      if (isScorer !== undefined) update.is_scorer = isScorer;
+      
+      // If setting someone as captain, remove it from others in the same team
+      if (isCaptain) {
+        const { data: p } = await supabase.from('players').select('team_id').eq('id', playerId).single();
+        if (p?.team_id) {
+          await supabase.from('players').update({ is_captain: false }).eq('team_id', p.team_id).eq('session_id', session.id);
+        }
+      }
+
+      // If setting someone as scorer, remove it from others in the same team
+      if (isScorer) {
+        const { data: p } = await supabase.from('players').select('team_id').eq('id', playerId).single();
+        if (p?.team_id) {
+          await supabase.from('players').update({ is_scorer: false }).eq('team_id', p.team_id).eq('session_id', session.id);
+        }
+      }
+
+      await supabase.from('players').update(update).eq('id', playerId);
+      return NextResponse.json({ success: true });
+    }
     // Admin: set toss result + batting first
     case 'set_toss': {
       const { tossWinnerId, decision, matchId } = data;

@@ -4,7 +4,7 @@ import { getUserSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-type Category = 'batting' | 'bowling' | 'allrounder';
+type Category = 'batting' | 'bowling' | 'allrounder' | 'champions';
 
 export async function GET(request: Request) {
   const session = await getUserSession();
@@ -38,6 +38,9 @@ export async function GET(request: Request) {
             strike_rate: Number(s?.strike_rate ?? 0),
             highest_score: s?.highest_score ?? 0,
             matches: s?.matches ?? 0,
+            balls_faced: s?.balls_faced ?? 0,
+            fours: s?.fours ?? 0,
+            sixes: s?.sixes ?? 0,
             battingStyle: u.batting_style?.replace('_', ' ') ?? '',
             isMe: u.id === session.id,
           };
@@ -51,6 +54,12 @@ export async function GET(request: Request) {
           meta: r.battingStyle,
           userId: r.userId,
           isMe: r.isMe,
+          // Raw stats for mobile app
+          raw_runs: r.runs,
+          raw_balls: r.balls_faced,
+          raw_sr: r.strike_rate,
+          raw_fours: r.fours,
+          raw_sixes: r.sixes,
         }));
 
       return NextResponse.json({ rankings });
@@ -77,6 +86,7 @@ export async function GET(request: Request) {
             best_figures: s?.best_figures ?? '-',
             maidens: s?.maidens ?? 0,
             matches: s?.matches ?? 0,
+            overs_bowled: Number(s?.overs_bowled ?? 0),
             bowlingStyle: u.bowling_style?.replace(/_/g, ' ') ?? '',
             isMe: u.id === session.id,
           };
@@ -90,9 +100,49 @@ export async function GET(request: Request) {
           meta: r.bowlingStyle,
           userId: r.userId,
           isMe: r.isMe,
+          // Raw stats for mobile app
+          raw_wickets: r.wickets,
+          raw_economy: r.economy,
+          raw_overs: r.overs_bowled,
         }));
 
       return NextResponse.json({ rankings });
+    }
+
+    if (category === 'champions') {
+      const [
+        { data: personal },
+        { data: highestScoreInning },
+        { data: highestRunsPlayer },
+        { data: highestWicketsPlayer },
+        { data: bestEcoPlayer },
+        { data: highestSixesPlayer },
+        { data: highestSRPlayer },
+        { data: allAdmins }
+      ] = await Promise.all([
+        supabase.from('users').select('matches_played, matches_won, matches_lost, matches_tied').eq('id', session.id).maybeSingle(),
+        supabase.from('innings').select('total_runs, total_wickets, total_balls').order('total_runs', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('batting_career_stats').select('user_id, runs').order('runs', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('bowling_career_stats').select('user_id, wickets').order('wickets', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('bowling_career_stats').select('user_id, economy, overs_bowled').gte('overs_bowled', 2).order('economy', { ascending: true }).limit(1).maybeSingle(),
+        supabase.from('batting_career_stats').select('user_id, sixes, fours').order('sixes', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('batting_career_stats').select('user_id, strike_rate, balls_faced').gte('balls_faced', 6).order('strike_rate', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('users').select('id, name')
+      ]);
+
+      const adminMap = new Map((allAdmins ?? []).map((a: any) => [a.id, a.name]));
+
+      return NextResponse.json({
+        teamA: { name: 'Turf Titans', wins: 6 },
+        teamB: { name: 'Titan Smashers', wins: 4 },
+        personal: personal ?? { matches_played: 0, matches_won: 0, matches_lost: 0, matches_tied: 0 },
+        highestScore: highestScoreInning ? `${highestScoreInning.total_runs}/${highestScoreInning.total_wickets} (${Math.floor(highestScoreInning.total_balls/6)}.${highestScoreInning.total_balls%6} Ov)` : '-',
+        highestRuns: { name: adminMap.get(highestRunsPlayer?.user_id) || '-', val: highestRunsPlayer?.runs ?? 0 },
+        highestWickets: { name: adminMap.get(highestWicketsPlayer?.user_id) || '-', val: highestWicketsPlayer?.wickets ?? 0 },
+        bestEco: { name: adminMap.get(bestEcoPlayer?.user_id) || '-', val: bestEcoPlayer?.economy ?? 0 },
+        highestSixes: { name: adminMap.get(highestSixesPlayer?.user_id) || '-', val: `${highestSixesPlayer?.sixes ?? 0} / ${highestSixesPlayer?.fours ?? 0}` },
+        highestSR: { name: adminMap.get(highestSRPlayer?.user_id) || '-', val: highestSRPlayer?.strike_rate ?? 0 },
+      });
     }
 
     // All-rounder — merge all users with both stats tables
