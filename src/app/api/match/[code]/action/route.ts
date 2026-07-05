@@ -829,7 +829,7 @@ export async function POST(
         return NextResponse.json({ error: 'Invalid overs value' }, { status: 400 });
       }
       const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
-      if (!m || !['innings_1', 'innings_break'].includes(m.status)) {
+      if (!m || !['setup', 'toss', 'innings_1', 'innings_break'].includes(m.status)) {
         return NextResponse.json({ error: 'Can only change overs before 2nd innings starts' }, { status: 400 });
       }
       await supabase.from('matches').update({ overs }).eq('id', matchId);

@@ -1,36 +1,33 @@
-import { PrismaClient } from '../src/generated/prisma'
-
-const prisma = new PrismaClient()
+import { prisma } from '../src/lib/prisma';
 
 async function main() {
-  const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
-
-  const recentMatches = await prisma.matches.findMany({
-    where: {
-      created_at: {
-        gte: fiveHoursAgo
-      }
-    },
-    include: {
-      teams_matches_team1_idToteams: true,
-      teams_matches_team2_idToteams: true,
-    }
+  const latestSession = await prisma.sessions.findFirst({
+    orderBy: { created_at: 'desc' },
   });
 
-  console.log(`Found ${recentMatches.length} matches in the last 5 hours.`);
-  recentMatches.forEach(m => {
-    console.log(`- Match ID: ${m.id}`);
-    console.log(`  Teams: ${m.teams_matches_team1_idToteams?.name} vs ${m.teams_matches_team2_idToteams?.name}`);
-    console.log(`  Status: ${m.status}, Result: ${m.result}`);
-    console.log(`  Created At: ${m.created_at}`);
+  if (!latestSession) {
+    console.log('No active session found.');
+    return;
+  }
+
+  // Find Shree Phanindra
+  const newOwner = await prisma.user.findFirst({
+    where: { name: { contains: 'shree phanindra', mode: 'insensitive' } }
   });
+
+  if (newOwner) {
+    await prisma.sessions.update({
+      where: { id: latestSession.id },
+      data: { owner_id: newOwner.id }
+    });
+    console.log(`Transferred ownership to ${newOwner.name}`);
+  } else {
+    console.log('Could not find user Shree Phanindra');
+  }
 }
 
 main()
-  .catch(e => {
-    console.error(e)
-    process.exit(1)
-  })
+  .catch(e => console.error(e))
   .finally(async () => {
-    await prisma.$disconnect()
-  })
+    await prisma.$disconnect();
+  });
