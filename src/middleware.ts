@@ -15,9 +15,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get('cricket_user_session')?.value;
+  const isApi = pathname.startsWith('/api/');
+
+  // Mobile clients authenticate with a Bearer token instead of cookies
+  const authHeader = request.headers.get('authorization');
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = request.cookies.get('cricket_user_session')?.value || bearerToken;
 
   if (!token) {
+    if (isApi) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
@@ -25,6 +33,9 @@ export async function middleware(request: NextRequest) {
     await jwtVerify(token, SECRET);
     return NextResponse.next();
   } catch {
+    if (isApi) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const res = NextResponse.redirect(new URL('/login', request.url));
     res.cookies.delete('cricket_user_session');
     return res;

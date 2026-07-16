@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { setUserSession } from '@/lib/auth';
+import { setUserSession, signUserToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   const { name, username, password, battingStyle, bowlingStyle, playerRole } = await request.json();
@@ -26,10 +26,13 @@ export async function POST(request: Request) {
     });
 
     await setUserSession(user.id, user.name, user.username, false);
-    return NextResponse.json({ 
-      success: true, 
-      redirect: '/', 
-      user: { id: user.id, name: user.name, username: user.username } 
+    // Also return a token so mobile clients can authenticate without cookies
+    const token = await signUserToken(user.id, user.name, user.username, false);
+    return NextResponse.json({
+      success: true,
+      redirect: '/',
+      token,
+      user: { id: user.id, name: user.name, username: user.username }
     });
   } catch (error: any) {
     if (error.code === 'P2002')

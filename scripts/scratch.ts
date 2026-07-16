@@ -1,29 +1,19 @@
 import { prisma } from '../src/lib/prisma';
+import bcrypt from 'bcryptjs';
 
 async function main() {
-  const latestSession = await prisma.sessions.findFirst({
-    orderBy: { created_at: 'desc' },
+  const password = 'aditya.r@134';
+  const hashed = await bcrypt.hash(password, 10);
+  
+  const user = await prisma.user.create({
+    data: {
+      name: 'Aditya R',
+      username: 'aditya.r',
+      password: hashed,
+    }
   });
-
-  if (!latestSession) {
-    console.log('No active session found.');
-    return;
-  }
-
-  // Find Shree Phanindra
-  const newOwner = await prisma.user.findFirst({
-    where: { name: { contains: 'shree phanindra', mode: 'insensitive' } }
-  });
-
-  if (newOwner) {
-    await prisma.sessions.update({
-      where: { id: latestSession.id },
-      data: { owner_id: newOwner.id }
-    });
-    console.log(`Transferred ownership to ${newOwner.name}`);
-  } else {
-    console.log('Could not find user Shree Phanindra');
-  }
+  
+  console.log('User created:', user);
 }
 
 main()

@@ -1,5 +1,5 @@
 import { jwtVerify, SignJWT } from 'jose';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 const SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'super-secret-cricket-admin-key'
@@ -25,9 +25,18 @@ export async function verifyUserToken(token: string) {
 
 export async function getUserSession() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('cricket_user_session')?.value;
-  if (!token) return null;
-  return verifyUserToken(token);
+  const cookieToken = cookieStore.get('cricket_user_session')?.value;
+  if (cookieToken) {
+    const session = await verifyUserToken(cookieToken);
+    if (session) return session;
+  }
+  // Mobile clients authenticate with a Bearer token instead of cookies
+  const headerStore = await headers();
+  const auth = headerStore.get('authorization');
+  if (auth?.startsWith('Bearer ')) {
+    return verifyUserToken(auth.slice(7));
+  }
+  return null;
 }
 
 export async function setUserSession(userId: string, name: string, username: string, isAdmin = false) {
